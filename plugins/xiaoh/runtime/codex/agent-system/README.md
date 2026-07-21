@@ -24,6 +24,7 @@ python3 __CODEX_HOME__/agent-system/validate.py --run-record /absolute/path/run-
 python3 __CODEX_HOME__/agent-system/validate.py --close-task-context /absolute/path/task-context.json --run-dir /absolute/path/evidence
 python3 __CODEX_HOME__/agent-system/validate.py --routing-case java-single-repo-fix --intent-domain business_project --selected-agents java_code_explorer,java_implementer,test_integration_verifier
 python3 __CODEX_HOME__/agent-system/validate.py --requirement-gate /absolute/path/task-context.json --action task_create
+python3 __CODEX_HOME__/agent-system/validate.py --requirement-gate /absolute/path/task-context.json --action spec_rfc_confirmation
 python3 __CODEX_HOME__/agent-system/validate.py --evaluate-runs /absolute/path/evidence --agent java_implementer --json
 python3 __CODEX_HOME__/agent-system/validate.py --evaluate-runs /absolute/path/evidence --agent java_implementer --sync-stage-evidence --json
 ```
@@ -42,7 +43,7 @@ python3 __CODEX_HOME__/agent-system/validate.py --evaluate-runs /absolute/path/e
 - Agent TOML 与 Obsidian 角色目录是否一致。
 - 路由案例是否引用已注册角色，高风险案例是否包含独立判断角色。
 - schema 1.3 上下文与路由案例是否明确区分全局 Agent 能力、Playbook 平台和业务项目。
-- schema 1.3业务上下文是否完整记录需求工件路由、显式Skill执行、Spec+RFC、OpenSpec追溯和遗漏补救状态。
+- schema 1.3业务上下文是否完整记录需求工件路由、显式Skill执行、Spec+RFC准入评审、OpenSpec一致性评审、追溯和遗漏补救状态。
 - Agent 阶段登记是否覆盖全部角色，Obsidian Sandbox 是否与 TOML 一致。
 - 公共契约、上下文索引、模板和进化台账是否存在。
 

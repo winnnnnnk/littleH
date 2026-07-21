@@ -44,10 +44,17 @@ ALLOWED_RETROACTIVE_STATUS = {"not_required", "pending", "in_progress", "review_
 ALLOWED_SKILL_STATUS = {"pending", "in_progress", "completed"}
 ALLOWED_SKILL_CONFIRMATION_STATUS = {"not_required", "pending", "confirmed"}
 ALLOWED_REQUIREMENT_GATE_ACTIONS = {
-    "readonly_analysis", "artifact_routing", "spec_rfc_baseline", "member_confirmation",
+    "readonly_analysis", "artifact_routing", "spec_rfc_baseline", "spec_rfc_confirmation", "member_confirmation",
     "task_create", "openspec_authoring", "openspec_consistency_review", "openspec_confirmation",
     "task_start", "implementation",
 }
+SPEC_RFC_REVIEW_SKILLS = {"spec-rfc-reviewer", "xiaoh:spec-rfc-reviewer"}
+OPENSPEC_REVIEW_SKILLS = {
+    "spec-rfc-openspec-consistency-review",
+    "xiaoh:spec-rfc-openspec-consistency-review",
+}
+SPEC_RFC_REVIEW_DECISIONS = {"OPENSPEC_READY", "OPENSPEC_READY_WITH_FIXES", "OPENSPEC_NOT_READY"}
+OPENSPEC_REVIEW_DECISIONS = {"PASS", "PASS_WITH_FINDINGS", "BLOCKED"}
 ALLOWED_RUN_STATUS = {"completed", "blocked", "failed", "cancelled"}
 ALLOWED_GATE_STATUS = {"passed", "failed", "blocked", "not-run", "blocked-as-required", "blocked-as-designed"}
 ALLOWED_VERIFICATION_STATUS = {"passed", "failed", "blocked", "not-run", "blocked-as-required", "blocked-as-designed"}
@@ -184,6 +191,39 @@ def non_empty_or_none(value):
     return value is None or (isinstance(value, str) and bool(value.strip()))
 
 
+def validate_artifact_review(
+    review, label, allowed_skills, allowed_decisions, passing_decision, revision, required, report,
+):
+    if not isinstance(review, dict):
+        if required:
+            report.error("{} review evidence is required".format(label))
+        return
+    if not require_keys(review, ["skill", "status", "decision", "reviewed_revision", "evidence"], label, report):
+        return
+    if review["skill"] not in allowed_skills:
+        report.error("{}.skill must be one of {}".format(label, sorted(allowed_skills)))
+    if review["status"] not in ALLOWED_REQUIREMENT_CHECK_STATUS:
+        report.error("{}.status must be one of {}".format(label, sorted(ALLOWED_REQUIREMENT_CHECK_STATUS)))
+    if review["decision"] not in allowed_decisions:
+        report.error("{}.decision must be one of {}".format(label, sorted(allowed_decisions)))
+    reviewed_revision = review["reviewed_revision"]
+    if reviewed_revision is not None and (
+        not isinstance(reviewed_revision, int) or isinstance(reviewed_revision, bool) or reviewed_revision < 1
+    ):
+        report.error("{}.reviewed_revision must be null or a positive integer".format(label))
+    if not non_empty_or_none(review["evidence"]):
+        report.error("{}.evidence must be null or a non-empty string".format(label))
+    if required:
+        if review["status"] != "passed":
+            report.error("{}.status must be passed".format(label))
+        if review["decision"] != passing_decision:
+            report.error("{}.decision must be {}".format(label, passing_decision))
+        if reviewed_revision != revision:
+            report.error("{}.reviewed_revision must match the current artifact revision".format(label))
+        if not isinstance(review["evidence"], str) or not review["evidence"].strip():
+            report.error("{}.evidence is required when the review passes".format(label))
+
+
 def validate_requirements(requirements, report):
     required = [
         "artifact_route", "route_reason", "risk_signals", "required_gates", "spec_rfc", "openspec",
@@ -197,7 +237,14 @@ def validate_requirements(requirements, report):
     if not isinstance(requirements["route_reason"], str) or not requirements["route_reason"].strip():
         report.error("requirements.route_reason must be a non-empty string")
     validate_string_list(requirements["risk_signals"], "requirements.risk_signals", report)
-    validate_string_list(requirements["required_gates"], "requirements.required_gates", report)
+    required_gates = validate_string_list(requirements["required_gates"], "requirements.required_gates", report)
+    if route == "spec_rfc_then_openspec":
+        missing_gates = {
+            "spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation",
+            "openspec_consistency_review",
+        } - set(required_gates)
+        if missing_gates:
+            report.error("spec_rfc_then_openspec missing required gates: {}".format(", ".join(sorted(missing_gates))))
 
     spec = requirements["spec_rfc"]
     if require_keys(
@@ -232,6 +279,11 @@ def validate_requirements(requirements, report):
                 report.error("confirmed Spec+RFC requires validation_status=passed")
             if spec["independent_review_status"] != "passed":
                 report.error("confirmed Spec+RFC requires independent_review_status=passed")
+            validate_artifact_review(
+                spec.get("quality_review"), "requirements.spec_rfc.quality_review",
+                SPEC_RFC_REVIEW_SKILLS, SPEC_RFC_REVIEW_DECISIONS, "OPENSPEC_READY",
+                spec["revision"], True, report,
+            )
             if spec["confirmed_by_user"] is not True or spec["confirmed_at"] is None:
                 report.error("confirmed Spec+RFC requires user confirmation evidence")
 
@@ -255,6 +307,11 @@ def validate_requirements(requirements, report):
             and validated_revision != spec.get("revision")
         ):
             report.error("Spec+RFC revision changed; OpenSpec consistency_status must reset to pending")
+        validate_artifact_review(
+            openspec.get("consistency_review"), "requirements.openspec.consistency_review",
+            OPENSPEC_REVIEW_SKILLS, OPENSPEC_REVIEW_DECISIONS, "PASS", validated_revision,
+            openspec["consistency_status"] == "passed", report,
+        )
 
     bypass = requirements["bypass"]
     if require_keys(bypass, ["reason"], "requirements.bypass", report):
@@ -341,6 +398,14 @@ def validate_requirement_gate(context, action, report):
         "member_confirmation", "task_create", "openspec_authoring", "openspec_confirmation",
         "task_start", "implementation",
     }
+    if action == "spec_rfc_confirmation" and route == "spec_rfc_then_openspec":
+        if spec.get("validation_status") != "passed":
+            report.error("Spec+RFC validation must pass before user confirmation")
+        validate_artifact_review(
+            spec.get("quality_review"), "requirements.spec_rfc.quality_review",
+            SPEC_RFC_REVIEW_SKILLS, SPEC_RFC_REVIEW_DECISIONS, "OPENSPEC_READY",
+            spec.get("revision"), True, report,
+        )
     if action in gated_actions and retro.get("required") is True and retro.get("status") != "completed":
         report.error("retroactive_normalization must be completed before {}".format(action))
     if action in gated_actions and route == "spec_rfc_then_openspec" and spec.get("status") != "confirmed":
@@ -369,8 +434,8 @@ def example_requirements():
         "route_reason": "总体需求涉及需要稳定基线的跨阶段语义",
         "risk_signals": ["multi_phase"],
         "required_gates": [
-            "spec_rfc_validation", "independent_review", "user_confirmation",
-            "openspec_consistency", "traceability",
+            "spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation",
+            "openspec_consistency_review", "traceability",
         ],
         "spec_rfc": {
             "status": "confirmed",
@@ -378,6 +443,11 @@ def example_requirements():
             "revision": 1,
             "validation_status": "passed",
             "independent_review_status": "passed",
+            "quality_review": {
+                "skill": "spec-rfc-reviewer", "status": "passed", "decision": "OPENSPEC_READY",
+                "reviewed_revision": 1,
+                "evidence": "/tmp/spec-rfc-review.md",
+            },
             "confirmed_by_user": True,
             "confirmed_at": "2026-07-21T00:00:00+08:00",
         },
@@ -385,6 +455,11 @@ def example_requirements():
             "consistency_status": "passed",
             "traceability_status": "passed",
             "validated_spec_rfc_revision": 1,
+            "consistency_review": {
+                "skill": "xiaoh:spec-rfc-openspec-consistency-review", "status": "passed",
+                "decision": "PASS", "reviewed_revision": 1,
+                "evidence": "/tmp/openspec-consistency-review.md",
+            },
         },
         "bypass": {"reason": None},
         "retroactive_normalization": {"required": False, "status": "not_required"},
@@ -1620,6 +1695,20 @@ def self_test(report):
         if not any("confirmed Spec+RFC is required" in error for error in pending_report.errors):
             report.error("unconfirmed Spec+RFC task-create denial self-test failed")
 
+        unreviewed_spec = json.loads(json.dumps(business_context))
+        unreviewed_spec["requirements"]["spec_rfc"].update({
+            "status": "confirmation_pending", "confirmed_by_user": False, "confirmed_at": None,
+            "independent_review_status": "pending",
+            "quality_review": {
+                "skill": "spec-rfc-reviewer", "status": "pending",
+                "decision": "OPENSPEC_NOT_READY", "reviewed_revision": None, "evidence": None,
+            },
+        })
+        unreviewed_report = Report()
+        validate_requirement_gate(unreviewed_spec, "spec_rfc_confirmation", unreviewed_report)
+        if not any("quality_review.status must be passed" in error for error in unreviewed_report.errors):
+            report.error("Spec+RFC quality-review denial self-test failed")
+
         missing_bypass = json.loads(json.dumps(business_context))
         missing_bypass["requirements"]["artifact_route"] = "openspec_only"
         missing_bypass["requirements"]["spec_rfc"].update({
@@ -1647,6 +1736,13 @@ def self_test(report):
         validate_requirement_gate(pending_consistency, "openspec_confirmation", consistency_report)
         if not any("consistency review must pass" in error for error in consistency_report.errors):
             report.error("OpenSpec consistency denial self-test failed")
+
+        wrong_consistency_skill = json.loads(json.dumps(business_context))
+        wrong_consistency_skill["requirements"]["openspec"]["consistency_review"]["skill"] = "spec-rfc-reviewer"
+        wrong_consistency_report = Report()
+        validate_task_context(wrong_consistency_skill, wrong_consistency_report, check_paths=False)
+        if not any("consistency_review.skill must be one of" in error for error in wrong_consistency_report.errors):
+            report.error("OpenSpec consistency Skill binding self-test failed")
 
         incomplete_skill = json.loads(json.dumps(business_context))
         incomplete_skill["requirements"]["skill_execution"]["records"][0].update({

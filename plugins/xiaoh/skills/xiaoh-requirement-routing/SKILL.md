@@ -38,12 +38,14 @@ Allow read-only code/document exploration and candidate impact analysis before b
 For `spec_rfc_then_openspec`:
 
 1. Execute `$spec-rfc` completely from the root thread.
-2. Require validation, independent review, and user confirmation.
-3. Only then confirm final member scope and create the workspace task.
-4. Derive each member OpenSpec from the accepted Spec+RFC.
-5. Trace FR/NFR through OpenSpec requirements/scenarios, tasks, implementation, and verification.
-6. Execute `$spec-rfc-openspec-consistency-review` before OpenSpec confirmation.
-7. Start implementation only after the applicable gate passes.
+2. Run `$xiaoh:spec-rfc-reviewer` against the complete current revision. Absorb findings, revise, and repeat until it grants `OPENSPEC_READY`.
+3. Run the `spec_rfc_confirmation` validator action, then present the reviewed Spec+RFC to the user for confirmation.
+4. Only then confirm final member scope and create the workspace task.
+5. Derive each member OpenSpec from the accepted Spec+RFC and trace FR/NFR through requirements/scenarios, tasks, implementation, and verification.
+6. Execute `$xiaoh:spec-rfc-openspec-consistency-review`. Absorb findings, revise OpenSpec, and repeat until it returns `PASS` for the current Spec+RFC revision.
+7. Confirm OpenSpec and start implementation only after the applicable gate passes.
+
+These are two separate lifecycle reviews. The source-quality review cannot replace the OpenSpec consistency review, and the consistency review cannot run before OpenSpec artifacts exist.
 
 Record explicitly requested Skills as started, completed, validated, and confirmed. Reading or imitating a Skill is not completion.
 

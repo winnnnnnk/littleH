@@ -111,7 +111,10 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 - A/B/C类正式文档优先选择`class_skill`并使用对应Skill。若class skill已定义正式需求工件，`spec-rfc`只做前置分析或缺口补齐，不得形成竞争事实源。
 - 用户明确点名Skill时，小H必须读取并完整执行，记录开始、完成、验证和人工确认状态；只阅读Skill、引用名称或产出相似内容不算完成。
 
-执行顺序固定为：意图与任务类型判断 → 只读事实探索 → 需求工件路由 → 必要时形成、验证、独立评审并人工确认Spec+RFC → 影响面与member范围确认 → workspace task create → 从已确认基线逐仓派生OpenSpec、建立追溯并做一致性评审 → 人工确认 → 实现与验证。Spec+RFC确认前只允许只读探索和候选影响面分析。
+执行顺序固定为：意图与任务类型判断 → 只读事实探索 → 需求工件路由 → 形成并验证Spec+RFC → 使用`xiaoh:spec-rfc-reviewer`完成源工件准入评审并吸收修改 → 人工确认Spec+RFC → 影响面与member范围确认 → workspace task create → 从已确认基线逐仓派生OpenSpec并建立追溯 → 使用`xiaoh:spec-rfc-openspec-consistency-review`完成一致性评审并吸收修改 → 人工确认OpenSpec → 实现与验证。Spec+RFC确认前只允许只读探索和候选影响面分析。
+
+- 两道评审是不可互换的固定门禁：第一道只审核Spec+RFC本身是否达到`OPENSPEC_READY`；第二道必须同时读取已确认Spec+RFC和完整OpenSpec artifacts，结论必须为`PASS`。任一评审失败时由小H吸收意见、修订对应工件并复审，不把整理修订责任退回用户。
+- 每道评审证据必须记录实际Skill、结论、证据路径和所审核的Spec+RFC修订号。修订号变化会使旧评审失效；不得使用旧版报告通过当前门禁。
 
 - `spec_rfc_then_openspec`下，Spec+RFC未确认前不得最终确认member、创建业务task、确认OpenSpec、启动task或修改业务代码。
 - OpenSpec必须追溯`Spec+RFC FR/NFR → OpenSpec Requirement/Scenario → tasks.md → 实现与验证证据`；人工确认前必须通过`spec-rfc-openspec-consistency-review`或等价独立评审。

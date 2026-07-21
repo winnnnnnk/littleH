@@ -84,6 +84,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 
 - `xiaoh-core`：根线程沟通、分析、路由、验收与知识沉淀。
 - `xiaoh-requirement-routing`：在业务任务进入成员确认、任务创建、OpenSpec或实现前，选择`openspec_only`、`spec_rfc_then_openspec`或`class_skill`，并执行需求工件门禁。
+- Spec+RFC路线固定执行两道评审：先用`xiaoh:spec-rfc-reviewer`审核源工件准入质量；生成OpenSpec后再用`xiaoh:spec-rfc-openspec-consistency-review`审核完整承接与语义一致性。`xiaoh:`只表示插件来源，不表示子Agent；校验器兼容已有的无前缀全局副本。
 - `xiaoh-setup`：显式安装Agent、公共契约、Hook、治理校验器和空白Vault。
 - `xiaoh-doctor`：静态及运行时诊断。
 - `xiaoh-update`：备份后同步当前插件版本，保留本地路径和知识。

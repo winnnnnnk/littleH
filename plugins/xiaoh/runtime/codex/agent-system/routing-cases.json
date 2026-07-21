@@ -225,7 +225,7 @@
       "prompt": "设计总体数据库迁移、历史数据兼容和转换策略。",
       "expected_route": "spec_rfc_then_openspec",
       "risk_signals": ["data_migration", "compatibility"],
-      "required_gates": ["spec_rfc_validation", "independent_review", "user_confirmation", "openspec_consistency"],
+      "required_gates": ["spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation", "openspec_consistency_review"],
       "retroactive_normalization": false,
       "consistency_reset": false,
       "rationale": "迁移和兼容需要稳定的总体语义与生命周期基线。"
@@ -236,7 +236,7 @@
       "prompt": "处理批量失败、事务回退、失败标记和恢复续跑。",
       "expected_route": "spec_rfc_then_openspec",
       "risk_signals": ["transaction_consistency", "failure_recovery"],
-      "required_gates": ["spec_rfc_validation", "independent_review", "user_confirmation", "openspec_consistency"],
+      "required_gates": ["spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation", "openspec_consistency_review"],
       "retroactive_normalization": false,
       "consistency_reset": false,
       "rationale": "事务和恢复语义不能由单个增量OpenSpec临时定义。"
@@ -247,7 +247,7 @@
       "prompt": "迁移涉及PKI、证书、密钥和敏感数据。",
       "expected_route": "spec_rfc_then_openspec",
       "risk_signals": ["sensitive_data", "pki", "key_semantics"],
-      "required_gates": ["spec_rfc_validation", "independent_review", "user_confirmation", "openspec_consistency"],
+      "required_gates": ["spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation", "openspec_consistency_review"],
       "retroactive_normalization": false,
       "consistency_reset": false,
       "rationale": "安全和密钥语义属于强制Spec+RFC触发条件。"
@@ -258,7 +258,7 @@
       "prompt": "需求分多期交付，并需保留后续change的扩展边界。",
       "expected_route": "spec_rfc_then_openspec",
       "risk_signals": ["multi_phase", "multi_change"],
-      "required_gates": ["spec_rfc_validation", "user_confirmation", "openspec_consistency"],
+      "required_gates": ["spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation", "openspec_consistency_review"],
       "retroactive_normalization": false,
       "consistency_reset": false,
       "rationale": "多个change需要共享同一总体需求基线。"
@@ -269,7 +269,7 @@
       "prompt": "用户明确要求使用$spec-rfc完成方案。",
       "expected_route": "spec_rfc_then_openspec",
       "risk_signals": ["explicit_skill"],
-      "required_gates": ["skill_execution_evidence", "spec_rfc_validation", "user_confirmation"],
+      "required_gates": ["skill_execution_evidence", "spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation", "openspec_consistency_review"],
       "retroactive_normalization": false,
       "consistency_reset": false,
       "rationale": "用户点名Skill具有强制路由优先级。"
@@ -291,7 +291,7 @@
       "prompt": "已经生成OpenSpec，后来发现总体需求本应先执行Spec+RFC。",
       "expected_route": "spec_rfc_then_openspec",
       "risk_signals": ["missing_overall_baseline"],
-      "required_gates": ["retroactive_normalization", "spec_rfc_validation", "openspec_consistency"],
+      "required_gates": ["retroactive_normalization", "spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation", "openspec_consistency_review"],
       "retroactive_normalization": true,
       "consistency_reset": false,
       "rationale": "暂停审批和实现并补齐基线，不推倒已有确认内容。"
@@ -302,7 +302,7 @@
       "prompt": "已确认Spec+RFC的总体业务和数据语义发生实质变化。",
       "expected_route": "spec_rfc_then_openspec",
       "risk_signals": ["baseline_revision"],
-      "required_gates": ["spec_rfc_revalidation", "user_reconfirmation", "openspec_consistency_reset"],
+      "required_gates": ["spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation", "openspec_consistency_review", "openspec_consistency_reset"],
       "retroactive_normalization": false,
       "consistency_reset": true,
       "rationale": "提升基线修订后必须重置受影响OpenSpec一致性。"
@@ -313,7 +313,7 @@
       "prompt": "仅更新tasks完成状态和验证证据，不改变总体语义。",
       "expected_route": "spec_rfc_then_openspec",
       "risk_signals": [],
-      "required_gates": [],
+      "required_gates": ["spec_rfc_validation", "spec_rfc_quality_review", "user_confirmation", "openspec_consistency_review"],
       "retroactive_normalization": false,
       "consistency_reset": false,
       "rationale": "实现状态变化不要求重新确认Spec+RFC。"
