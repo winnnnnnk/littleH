@@ -1810,6 +1810,9 @@ def self_test(report):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task-context", type=Path)
     parser.add_argument("--requirement-gate", type=Path)

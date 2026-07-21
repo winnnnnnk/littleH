@@ -114,6 +114,9 @@ def verify(codex_home: Path, cwd: Path) -> None:
 
 
 def main() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("--codex-home", type=Path, required=True)
     parser.add_argument("--cwd", type=Path, required=True)

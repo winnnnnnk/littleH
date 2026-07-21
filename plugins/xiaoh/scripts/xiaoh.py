@@ -216,7 +216,7 @@ def doctor(codex: Path, vault: Path, runtime: bool = False) -> dict:
     env.update({"CODEX_HOME": str(codex), "XIAOH_VAULT": str(vault)})
     if not errors:
         for command in commands:
-            result = subprocess.run(command, env=env, capture_output=True, text=True)
+            result = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8")
             if result.returncode:
                 summary = (result.stderr or result.stdout).strip()
                 errors.append(f"命令失败: {' '.join(command)}\n{summary}")

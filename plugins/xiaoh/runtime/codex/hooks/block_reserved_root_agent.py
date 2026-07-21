@@ -483,6 +483,7 @@ def decision(
             [sys.executable, str(validator), "--task-context", str(context_path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=15,
             check=False,
         )
@@ -690,7 +691,8 @@ def self_test() -> None:
             for raw in ("{", "[]"):
                 checked = subprocess.run(
                     [sys.executable, str(Path(__file__).resolve()), "--subagent-start"],
-                    input=raw, text=True, capture_output=True, env=environment, check=False,
+                    input=raw, text=True, encoding="utf-8", capture_output=True,
+                    env=environment, check=False,
                 )
                 response = json.loads(checked.stdout)
                 if response.get("hookSpecificOutput", {}).get("additionalContext") != unauthorized_subagent_context():
@@ -724,6 +726,9 @@ def self_test() -> None:
 
 
 def main() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     if sys.argv[1:] == ["--self-test"]:
         self_test()
         return
