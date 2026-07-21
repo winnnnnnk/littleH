@@ -43,11 +43,21 @@ jobs:
       - name: Verify isolated installation
         shell: bash
         run: |
+          set +e
+          output=$(
           python plugins/xiaoh/scripts/xiaoh.py setup \
             --codex-home .ci/codex \
             --vault .ci/vault \
             --config .ci/xiaoh.json \
-            --json
+            --json 2>&1
+          )
+          status=$?
+          printf '%s\n' "$output"
+          if [[ $status -ne 0 ]]; then
+            while IFS= read -r line; do printf '::error::%s\n' "$line"; done <<< "$output"
+            exit "$status"
+          fi
+          set -e
           python plugins/xiaoh/scripts/xiaoh.py doctor \
             --codex-home .ci/codex \
             --vault .ci/vault \
