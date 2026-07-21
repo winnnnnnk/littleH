@@ -5,6 +5,7 @@
 - 增加macOS与Windows GitHub Actions验证矩阵。
 - 增加双系统安装、诊断和`develop`分支使用说明。
 - 修正Windows下Hook路径分隔符造成的配置漂移误判。
+- 固定命令行输出为UTF-8，避免Windows默认代码页无法输出中文诊断。
 
 ## 2.1.0 - 2026-07-21
 

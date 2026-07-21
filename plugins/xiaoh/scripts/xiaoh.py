@@ -312,6 +312,12 @@ def emit(result: dict, as_json: bool) -> int:
     return 0 if result["status"] == "passed" else 1
 
 
+def configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -327,6 +333,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    configure_stdio()
     args = build_parser().parse_args()
     codex, vault, config_path = resolve_paths(args)
     if args.command == "plan":
