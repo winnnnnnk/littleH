@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([switch]$SelfTest, [switch]$Prepare, [switch]$SubagentStart, [switch]$SubagentStop)
 
 $ErrorActionPreference = "Stop"
