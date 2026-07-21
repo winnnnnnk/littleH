@@ -1,0 +1,7 @@
+interface:
+  display_name: "工程方案双轨决策"
+  short_description: "对比最小改动与最合适改动，明确收益成本风险后支持业务选择"
+  default_prompt: "使用 $fit-for-purpose-engineering 基于真实代码和业务约束，对比最小改动方案与最合适改动方案，并给出有证据的推荐。"
+
+policy:
+  allow_implicit_invocation: true

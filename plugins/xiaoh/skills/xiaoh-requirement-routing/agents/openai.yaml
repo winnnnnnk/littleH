@@ -1,0 +1,4 @@
+interface:
+  display_name: "XiaoH Requirement Routing"
+  short_description: "Route business requirements to the correct governed artifact."
+  default_prompt: "Use $xiaoh-requirement-routing to select the required artifact route and gates."

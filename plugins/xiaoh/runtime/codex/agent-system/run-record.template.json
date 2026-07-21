@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.2",
+  "run_id": "example-task-xiaoh-01",
+  "task_id": "example-task",
+  "agent": "xiaoh",
+  "role": "coordinator",
+  "selection_reason": "负责上下文路由、校验执行和结果验收",
+  "context_pack": "__CODEX_HOME__/agent-system/task-context.template.json",
+  "context_hash": "68b68c54223ca703259294ebebe423fcf2d4c2b99cb851b573d7ba1bbcf36814",
+  "started_at": "2026-07-18T00:00:00+08:00",
+  "ended_at": "2026-07-18T00:01:00+08:00",
+  "status": "completed",
+  "gates": [
+    {
+      "name": "context_complete",
+      "status": "passed",
+      "evidence": "任务上下文包通过结构检查"
+    }
+  ],
+  "verification": [
+    {
+      "command": "python3 __CODEX_HOME__/agent-system/validate.py",
+      "status": "passed",
+      "summary": "全局配置和目录一致"
+    }
+  ],
+  "outputs": {
+    "conclusion": "校验完成",
+    "evidence_paths": []
+  },
+  "runtime_evidence": null,
+  "rework": {
+    "count": 0,
+    "reasons": []
+  },
+  "metrics": {
+    "context_supplements": 0,
+    "boundary_violations": 0,
+    "verification_failures": 0,
+    "escaped_defects": 0,
+    "result_accepted": true
+  },
+  "agent_improvement_candidates": []
+}

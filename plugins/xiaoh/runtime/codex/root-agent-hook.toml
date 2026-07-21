@@ -1,0 +1,31 @@
+# xiaoh-root-agent-hook:start
+[[hooks.PreToolUse]]
+matcher = "^(Agent|spawn_agent)$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py"'
+command_windows = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "__CODEX_HOME__/hooks/block_reserved_root_agent.ps1"'
+timeout = 20
+statusMessage = "校验 Agent 委派上下文与角色权限"
+
+[[hooks.SubagentStart]]
+matcher = ".*"
+
+[[hooks.SubagentStart.hooks]]
+type = "command"
+command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --subagent-start'
+command_windows = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "__CODEX_HOME__/hooks/block_reserved_root_agent.ps1" -SubagentStart'
+timeout = 20
+statusMessage = "绑定专业 Agent 运行身份与任务上下文"
+
+[[hooks.SubagentStop]]
+matcher = ".*"
+
+[[hooks.SubagentStop.hooks]]
+type = "command"
+command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --subagent-stop'
+command_windows = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "__CODEX_HOME__/hooks/block_reserved_root_agent.ps1" -SubagentStop'
+timeout = 20
+statusMessage = "认证专业 Agent 有效委派回执"
+# xiaoh-root-agent-hook:end

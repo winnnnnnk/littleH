@@ -1,0 +1,20 @@
+{
+  "name": "xiaoh",
+  "version": "2.1.0",
+  "description": "Root-thread coordination, governed agent delegation, and durable development context for Codex.",
+  "author": {
+    "name": "XiaoH Project"
+  },
+  "license": "MIT",
+  "keywords": ["coordination", "agents", "governance", "obsidian", "development"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "小H",
+    "shortDescription": "主动理解需求、协调专业Agent并沉淀长期上下文",
+    "longDescription": "小H作为Codex根对话协调者，负责需求分析、方案推荐、专业Agent调度、结果验收、门禁验证与Obsidian知识沉淀。",
+    "developerName": "XiaoH Project",
+    "category": "Productivity",
+    "capabilities": ["Instructions", "Local setup", "Agent governance"],
+    "defaultPrompt": "小H，请分析我的目标，带着推荐方案向我确认，然后持续推进。"
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "XiaoH Update"
+  short_description: "Safely update XiaoH runtime while preserving local context."
+  default_prompt: "Use $xiaoh-update to update XiaoH and preserve my local configuration."

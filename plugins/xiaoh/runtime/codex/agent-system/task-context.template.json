@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.3",
+  "revision": 1,
+  "previous_context": null,
+  "task_id": "example-task",
+  "intent": {
+    "domain": "global_agent_capability",
+    "previous_domain": null,
+    "scope_change_confirmed": false,
+    "confirmation_evidence": null
+  },
+  "task_type": "analysis",
+  "risk_level": "low",
+  "goal": "验证全局 Agent 配置与知识库目录保持一致",
+  "behavior": {
+    "current": "角色配置和人类可读目录可能独立变化",
+    "target": "配置变化可以通过只读校验发现漂移"
+  },
+  "scope": {
+    "workspace": "__CODEX_HOME__",
+    "repositories": [],
+    "allowed_paths": [
+      "__CODEX_HOME__/AGENTS.md",
+      "__CODEX_HOME__/agents",
+      "__OBSIDIAN_VAULT__/04-架构与决策/Agent协作角色.md"
+    ],
+    "prohibited_actions": [
+      "修改角色权限",
+      "提交或推送任何仓库",
+      "执行外部写入"
+    ]
+  },
+  "sources": [
+    {
+      "path": "__CODEX_HOME__/AGENTS.md",
+      "purpose": "全局 Agent 公共契约",
+      "required": true
+    },
+    {
+      "path": "__CODEX_HOME__/agents",
+      "purpose": "角色配置事实源",
+      "required": true
+    }
+  ],
+  "confirmed_decisions": [
+    "保持 max_depth=1",
+    "本任务不改变角色和权限"
+  ],
+  "routing": {
+    "root_agent": "xiaoh",
+    "delegated_agents": [],
+    "delegation_names": {},
+    "selection_reason": "低风险全局配置核对由协调者直接完成，不需要专业角色",
+    "independent_review_required": false,
+    "independent_review_agents": []
+  },
+  "playbook": {
+    "managed": false,
+    "workspace_id": null,
+    "change_id": null,
+    "stage": null,
+    "worker_contract_source": null
+  },
+  "requirements": null,
+  "acceptance": [
+    "校验器返回明确的通过或失败结果",
+    "失败项包含可定位路径和恢复方向"
+  ],
+  "verification": [
+    {
+      "command": "python3 __CODEX_HOME__/agent-system/validate.py",
+      "expected": "exit code 0"
+    }
+  ],
+  "output_contract": {
+    "format": "structured-summary",
+    "required_fields": [
+      "conclusion",
+      "evidence",
+      "verification",
+      "risks",
+      "agent_improvement_candidate"
+    ]
+  },
+  "stop_conditions": [
+    "任务要求改变角色职责、权限、门禁、模型或工具",
+    "事实源冲突且无法只读确定优先级"
+  ],
+  "freshness": {
+    "checked_at": "2026-07-18T00:00:00+08:00",
+    "checked_by": "xiaoh"
+  }
+}

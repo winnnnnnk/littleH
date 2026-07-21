@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0",
+  "agents": [
+    {
+      "name": "xiaoh",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    },
+    {
+      "name": "pki_domain_expert",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    },
+    {
+      "name": "java_architect",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    },
+    {
+      "name": "java_code_explorer",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    },
+    {
+      "name": "java_implementer",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    },
+    {
+      "name": "frontend_implementer",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    },
+    {
+      "name": "test_integration_verifier",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    },
+    {
+      "name": "code_quality_reviewer",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    },
+    {
+      "name": "pki_security_reviewer",
+      "stage": "trial",
+      "since": "2026-07-18",
+      "evidence_runs": 0,
+      "last_evaluated_at": null
+    }
+  ]
+}

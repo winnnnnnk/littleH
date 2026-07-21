@@ -1,0 +1,4 @@
+interface:
+  display_name: "XiaoH Setup"
+  short_description: "Initialize XiaoH agents, governance, hooks, and Obsidian."
+  default_prompt: "Use $xiaoh-setup to initialize XiaoH on this computer."

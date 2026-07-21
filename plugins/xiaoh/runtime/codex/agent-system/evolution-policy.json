@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "allowed_stages": [
+    "draft",
+    "trial",
+    "stable",
+    "optimize",
+    "retired"
+  ],
+  "trial_to_stable": {
+    "min_valid_runs": 8,
+    "min_task_types": 3,
+    "min_acceptance_observations": 5,
+    "min_acceptance_rate": 0.8,
+    "max_rework_run_rate": 0.25,
+    "max_context_supplement_run_rate": 0.25,
+    "max_verification_failure_run_rate": 0.1,
+    "max_boundary_violations": 0,
+    "max_escaped_defects": 0
+  },
+  "optimization_triggers": {
+    "repeated_candidate_category": 3,
+    "boundary_violations": 1,
+    "escaped_defects": 1
+  },
+  "decision_rule": "指标只产生阶段评审建议；阶段变化、职责、权限、门禁、模型、工具或角色结构调整仍需小H复核，并按公共契约取得用户确认"
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "XiaoH Doctor"
+  short_description: "Diagnose XiaoH installation, hooks, agents, and paths."
+  default_prompt: "Use $xiaoh-doctor to check whether XiaoH is installed and working correctly."
