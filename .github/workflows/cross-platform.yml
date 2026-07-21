@@ -92,5 +92,11 @@ jobs:
             }
           }
           if ($failed) { exit 1 }
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
-            plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.ps1 -SelfTest
+          $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+            plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.ps1 -SelfTest 2>&1
+          $status = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($status -ne 0) {
+            $output | ForEach-Object { Write-Output ("::error::" + $_) }
+            exit $status
+          }
