@@ -87,7 +87,10 @@ jobs:
               (Resolve-Path $_), [ref]$tokens, [ref]$errors
             ) | Out-Null
             if ($errors.Count -gt 0) {
-              $errors | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+              $path = $_
+              $errors | ForEach-Object {
+                Write-Output ("::error file=" + $path + ",line=" + $_.Extent.StartLineNumber + "::" + $_.Message)
+              }
               $failed = $true
             }
           }
