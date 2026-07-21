@@ -13,7 +13,7 @@
 | macOS | `install.sh` | Python、JSON、隔离安装、Hook自检 |
 | Windows | `install-windows.cmd`或`install.ps1` | Python、JSON、隔离安装、PowerShell Hook自检 |
 
-两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看开发知识库时安装，不是小H初始化的硬依赖。
+两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看开发知识库时安装，不是小H初始化的硬依赖。小H自己的9个Skill随插件发布；配套Codex插件由初始化程序根据机器可读清单自动安装。
 
 ## 从GitHub安装
 
@@ -30,7 +30,7 @@ codex plugin add xiaoh@xiaoh
 小H，初始化当前电脑
 ```
 
-`xiaoh-setup`会使用默认目录，或根据你的选择配置：
+`xiaoh-setup`会自动安装可用的配套Codex插件，并使用默认目录或根据你的选择配置：
 
 - Codex：`~/.codex`
 - Obsidian：`~/obsidian/development-vault`
@@ -70,6 +70,15 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 源码安装器会注册当前目录为本地Marketplace、安装`xiaoh`插件并执行初始化。
+
+## 能力依赖
+
+依赖事实源是`plugins/xiaoh/dependencies.json`，不是README中的人工步骤：
+
+- 9个小H核心Skill随插件安装。
+- Ponytail以及Codex提供的浏览器、文档、PDF、表格、演示、站点和可视化插件由初始化程序自动检测并安装。
+- `codebase-memory-mcp`是可选的本机增强能力。小H只检测其是否存在，不会下载或执行第三方远程安装脚本；缺失时自动使用本地代码搜索，不影响核心运行。
+- `$xiaoh-doctor`会把当前机器报告为`complete`或`degraded`，并列出实际缺失能力。
 
 ## 插件结构
 

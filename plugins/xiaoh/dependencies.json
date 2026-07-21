@@ -1,0 +1,88 @@
+{
+  "schema_version": "1.0",
+  "bundled_skills": [
+    "fit-for-purpose-engineering",
+    "spec-rfc",
+    "spec-rfc-openspec-consistency-review",
+    "spec-rfc-reviewer",
+    "xiaoh-core",
+    "xiaoh-doctor",
+    "xiaoh-requirement-routing",
+    "xiaoh-setup",
+    "xiaoh-update"
+  ],
+  "codex_plugins": [
+    {
+      "id": "ponytail@ponytail",
+      "level": "recommended",
+      "auto_install": true,
+      "marketplace_source": "DietrichGebert/ponytail",
+      "marketplace_ref": "main",
+      "purpose": "在已确认方案的编码阶段收敛实现复杂度"
+    },
+    {
+      "id": "browser@openai-bundled",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "真实浏览器验证"
+    },
+    {
+      "id": "chrome@openai-bundled",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "复用用户现有Chrome会话"
+    },
+    {
+      "id": "documents@openai-primary-runtime",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "Word文档处理"
+    },
+    {
+      "id": "pdf@openai-primary-runtime",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "PDF处理"
+    },
+    {
+      "id": "spreadsheets@openai-primary-runtime",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "电子表格处理"
+    },
+    {
+      "id": "presentations@openai-primary-runtime",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "演示文稿处理"
+    },
+    {
+      "id": "template-creator@openai-primary-runtime",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "可复用文档模板生成"
+    },
+    {
+      "id": "sites@openai-bundled",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "站点构建与托管"
+    },
+    {
+      "id": "visualize@openai-bundled",
+      "level": "optional",
+      "auto_install": true,
+      "purpose": "交互式可视化"
+    }
+  ],
+  "external_capabilities": [
+    {
+      "id": "codebase-memory-mcp",
+      "level": "optional",
+      "commands": ["codebase-memory-mcp"],
+      "auto_install": false,
+      "source": "https://github.com/DeusData/codebase-memory-mcp",
+      "purpose": "代码知识图谱、调用链和影响分析"
+    }
+  ]
+}

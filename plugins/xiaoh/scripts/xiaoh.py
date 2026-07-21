@@ -18,6 +18,7 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME = PLUGIN_ROOT / "runtime"
 PLUGIN_MANIFEST = PLUGIN_ROOT / ".codex-plugin/plugin.json"
+DEPENDENCY_MANIFEST = PLUGIN_ROOT / "dependencies.json"
 REQUIRED_AGENTS = {
     "code_quality_reviewer",
     "frontend_implementer",
@@ -43,6 +44,107 @@ def load_json(path: Path, default: dict | None = None) -> dict:
     if not isinstance(value, dict):
         raise ValueError(f"{path} 必须包含 JSON 对象")
     return value
+
+
+def run_codex_json(arguments: list[str]) -> tuple[dict | None, str | None]:
+    codex = shutil.which("codex")
+    if not codex:
+        return None, "未找到Codex CLI，跳过配套插件检测"
+    result = subprocess.run(
+        [codex, *arguments, "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode:
+        return None, (result.stderr or result.stdout).strip()
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        return None, f"Codex CLI返回了无效JSON: {error}"
+    return value, None
+
+
+def companion_report(install_missing: bool = False) -> dict:
+    manifest = load_json(DEPENDENCY_MANIFEST)
+    warnings: list[str] = []
+    errors: list[str] = []
+    installed_now: list[str] = []
+    plugins: list[dict] = []
+
+    plugin_snapshot, plugin_error = run_codex_json(["plugin", "list"])
+    marketplace_snapshot, marketplace_error = run_codex_json(["plugin", "marketplace", "list"])
+    if plugin_error:
+        warnings.append(plugin_error)
+        installed_ids: set[str] = set()
+    else:
+        installed_ids = {
+            item["pluginId"]
+            for item in plugin_snapshot.get("installed", [])
+            if item.get("enabled")
+        }
+    if marketplace_error:
+        marketplace_names: set[str] = set()
+    else:
+        marketplace_names = {
+            item["name"] for item in marketplace_snapshot.get("marketplaces", [])
+        }
+
+    for dependency in manifest["codex_plugins"]:
+        plugin_id = dependency["id"]
+        marketplace = plugin_id.rsplit("@", 1)[-1]
+        installed = plugin_id in installed_ids
+        detail = {**dependency, "status": "installed" if installed else "missing"}
+        if not installed and install_missing and dependency.get("auto_install") and not plugin_error:
+            source = dependency.get("marketplace_source")
+            if source and marketplace not in marketplace_names:
+                arguments = ["plugin", "marketplace", "add", source]
+                if dependency.get("marketplace_ref"):
+                    arguments.extend(["--ref", dependency["marketplace_ref"]])
+                _, error = run_codex_json(arguments)
+                if error:
+                    detail["install_error"] = error
+                else:
+                    marketplace_names.add(marketplace)
+            if not detail.get("install_error"):
+                _, error = run_codex_json(["plugin", "add", plugin_id])
+                if error:
+                    detail["install_error"] = error
+                else:
+                    detail["status"] = "installed"
+                    installed_ids.add(plugin_id)
+                    installed_now.append(plugin_id)
+        if detail["status"] != "installed":
+            message = f"配套插件不可用: {plugin_id}（{dependency['purpose']}）"
+            if detail.get("install_error"):
+                message += f": {detail['install_error']}"
+            if dependency["level"] == "required":
+                errors.append(message)
+            else:
+                warnings.append(message)
+        plugins.append(detail)
+
+    external: list[dict] = []
+    for dependency in manifest.get("external_capabilities", []):
+        available = any(shutil.which(command) for command in dependency.get("commands", []))
+        detail = {**dependency, "status": "available" if available else "missing"}
+        if not available:
+            message = f"外部增强能力不可用: {dependency['id']}（{dependency['purpose']}）"
+            if dependency["level"] == "required":
+                errors.append(message)
+            else:
+                warnings.append(message)
+        external.append(detail)
+
+    return {
+        "status": "failed" if errors else ("degraded" if warnings else "complete"),
+        "bundled_skills": manifest["bundled_skills"],
+        "plugins": plugins,
+        "external_capabilities": external,
+        "installed_now": installed_now,
+        "warnings": list(dict.fromkeys(warnings)),
+        "errors": errors,
+    }
 
 
 def resolve_paths(args: argparse.Namespace) -> tuple[Path, Path, Path]:
@@ -162,7 +264,8 @@ def refresh_templates(codex: Path) -> None:
 
 
 def doctor(codex: Path, vault: Path, runtime: bool = False) -> dict:
-    errors: list[str] = []
+    companions = companion_report()
+    errors: list[str] = list(companions["errors"])
     actual_agents = {path.stem for path in (codex / "agents").glob("*.toml")}
     if "xiaoh" in actual_agents:
         errors.append("保留根线程 xiaoh 被错误注册为子 Agent")
@@ -226,6 +329,8 @@ def doctor(codex: Path, vault: Path, runtime: bool = False) -> dict:
         "codex_home": str(codex),
         "obsidian_vault": str(vault),
         "runtime_checked": runtime,
+        "capabilities": companions,
+        "warnings": companions["warnings"],
         "errors": errors,
     }
 
@@ -242,6 +347,7 @@ def install(args: argparse.Namespace, mode: str) -> dict:
             "obsidian_vault": str(vault),
             "errors": ["现有未登记 Agent 需要先纳入角色目录或移出: " + ", ".join(conflicts)],
         }
+    companions = companion_report(install_missing=True)
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     backup = Path.home() / f".xiaoh/backups/{timestamp}"
     for source, relative in (
@@ -292,6 +398,8 @@ def install(args: argparse.Namespace, mode: str) -> dict:
         encoding="utf-8",
     )
     result = doctor(codex, vault)
+    result["capabilities"] = companions
+    result["warnings"] = companions["warnings"]
     result.update({"operation": mode, "version": version, "backup": str(backup), "config": str(config_path)})
     return result
 
@@ -307,6 +415,8 @@ def emit(result: dict, as_json: bool) -> int:
             print(f"Backup: {result['backup']}")
         for error in result.get("errors", []):
             print(f"ERROR: {error}", file=sys.stderr)
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}", file=sys.stderr)
         if result["status"] == "passed" and result.get("operation"):
             print("重启 Codex，在 /hooks 中审核并信任三个 XiaoH Hook，然后运行 doctor --runtime。")
     return 0 if result["status"] == "passed" else 1
@@ -321,20 +431,34 @@ def configure_stdio() -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("plan", "setup", "update", "doctor"):
+    for name in ("plan", "setup", "update", "doctor", "companions"):
         command = subparsers.add_parser(name)
-        command.add_argument("--codex-home")
-        command.add_argument("--vault")
-        command.add_argument("--config")
+        if name != "companions":
+            command.add_argument("--codex-home")
+            command.add_argument("--vault")
+            command.add_argument("--config")
         command.add_argument("--json", action="store_true")
         if name == "doctor":
             command.add_argument("--runtime", action="store_true")
+        if name == "companions":
+            command.add_argument("--install", action="store_true")
     return parser
 
 
 def main() -> int:
     configure_stdio()
     args = build_parser().parse_args()
+    if args.command == "companions":
+        result = companion_report(args.install)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print(f"XiaoH capabilities: {result['status']}")
+            for warning in result["warnings"]:
+                print(f"WARNING: {warning}", file=sys.stderr)
+            for error in result["errors"]:
+                print(f"ERROR: {error}", file=sys.stderr)
+        return 1 if result["status"] == "failed" else 0
     codex, vault, config_path = resolve_paths(args)
     if args.command == "plan":
         return emit(
