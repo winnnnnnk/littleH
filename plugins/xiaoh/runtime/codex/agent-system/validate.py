@@ -1414,12 +1414,12 @@ def validate_global(report):
             report.error("xiaoh root-agent hook must match Agent and spawn_agent tool calls")
         else:
             expected_commands = [
-                'command = \'python3 "{}"\''.format(ROOT_AGENT_HOOK),
-                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}"\''.format(ROOT_AGENT_HOOK_WINDOWS),
-                'command = \'python3 "{}" --subagent-start\''.format(ROOT_AGENT_HOOK),
-                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}" -SubagentStart\''.format(ROOT_AGENT_HOOK_WINDOWS),
-                'command = \'python3 "{}" --subagent-stop\''.format(ROOT_AGENT_HOOK),
-                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}" -SubagentStop\''.format(ROOT_AGENT_HOOK_WINDOWS),
+                'command = \'python3 "{}"\''.format(ROOT_AGENT_HOOK.as_posix()),
+                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}"\''.format(ROOT_AGENT_HOOK_WINDOWS.as_posix()),
+                'command = \'python3 "{}" --subagent-start\''.format(ROOT_AGENT_HOOK.as_posix()),
+                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}" -SubagentStart\''.format(ROOT_AGENT_HOOK_WINDOWS.as_posix()),
+                'command = \'python3 "{}" --subagent-stop\''.format(ROOT_AGENT_HOOK.as_posix()),
+                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}" -SubagentStop\''.format(ROOT_AGENT_HOOK_WINDOWS.as_posix()),
             ]
             for expected in expected_commands:
                 if expected not in hook_block.group(0):

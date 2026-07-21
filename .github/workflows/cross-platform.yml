@@ -1,0 +1,86 @@
+name: Cross-platform
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate Python and JSON
+        shell: bash
+        run: |
+          python -m py_compile \
+            plugins/xiaoh/scripts/xiaoh.py \
+            plugins/xiaoh/runtime/codex/agent-system/validate.py \
+            plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py \
+            plugins/xiaoh/runtime/codex/hooks/verify_agent_hook_runtime.py
+          for file in \
+            .agents/plugins/marketplace.json \
+            plugins/xiaoh/.codex-plugin/plugin.json \
+            plugins/xiaoh/runtime/codex/agent-system/*.json; do
+            python -m json.tool "$file" >/dev/null
+          done
+
+      - name: Verify isolated installation
+        shell: bash
+        run: |
+          python plugins/xiaoh/scripts/xiaoh.py setup \
+            --codex-home .ci/codex \
+            --vault .ci/vault \
+            --config .ci/xiaoh.json \
+            --json
+          python plugins/xiaoh/scripts/xiaoh.py doctor \
+            --codex-home .ci/codex \
+            --vault .ci/vault \
+            --config .ci/xiaoh.json \
+            --json
+
+      - name: Verify macOS entrypoints
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bash -n install.sh verify.sh
+          python plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py --self-test
+
+      - name: Verify Windows entrypoints
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $failed = $false
+          @(
+            "install.ps1",
+            "verify.ps1",
+            "plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.ps1"
+          ) | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $_), [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+            plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.ps1 -SelfTest

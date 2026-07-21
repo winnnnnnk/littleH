@@ -12,6 +12,7 @@ __pycache__/
 *.sha256
 checksums.sha256
 dist/
+.ci/
 .xiaoh/
 config.local.json
 .idea/

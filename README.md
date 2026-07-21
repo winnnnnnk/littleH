@@ -1,15 +1,26 @@
 # 小H Codex Plugin
 
+[![Cross-platform](https://github.com/winnnnnnk/littleH/actions/workflows/cross-platform.yml/badge.svg?branch=develop)](https://github.com/winnnnnnk/littleH/actions/workflows/cross-platform.yml?query=branch%3Adevelop)
+
 小H是Codex根对话中的协调者：用户只需描述目标、想法、现象或背景；小H负责形成推荐方案、询问真正影响结果的决策、协调专业Agent、验收结果并沉淀稳定知识。
 
 本仓库是可直接安装的Codex Marketplace源码，只包含通用能力，不包含客户、项目、仓库、真实任务证据、账号或凭据。
 
-## 安装
+## 支持环境
 
-从GitHub安装：
+| 系统 | 安装入口 | 自动验证 |
+| --- | --- | --- |
+| macOS | `install.sh` | Python、JSON、隔离安装、Hook自检 |
+| Windows | `install-windows.cmd`或`install.ps1` | Python、JSON、隔离安装、PowerShell Hook自检 |
+
+两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看开发知识库时安装，不是小H初始化的硬依赖。
+
+## 从GitHub安装
+
+当前发布分支为`develop`：
 
 ```bash
-codex plugin marketplace add <owner>/<repository>
+codex plugin marketplace add winnnnnnk/littleH --ref develop
 codex plugin add xiaoh@xiaoh
 ```
 
@@ -31,16 +42,34 @@ codex plugin add xiaoh@xiaoh
 小H，检查当前环境和Hook是否生效
 ```
 
-## 本地源码安装
+也可以直接执行运行态验证：macOS使用`./verify.sh --runtime`，Windows使用`.\verify.ps1 -Runtime`。
+
+## macOS源码安装
 
 ```bash
-git clone <repository-url>
-cd xiaoh-functional-kit
+git clone -b develop https://github.com/winnnnnnk/littleH.git
+cd littleH
 chmod +x install.sh verify.sh
 ./install.sh
+./verify.sh
 ```
 
-Windows可双击`install-windows.cmd`。源码安装器会注册当前目录为本地Marketplace、安装`xiaoh`插件并执行初始化。
+## Windows源码安装
+
+```powershell
+git clone -b develop https://github.com/winnnnnnk/littleH.git
+cd littleH
+.\install-windows.cmd
+```
+
+也可以直接使用PowerShell：
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
+.\verify.ps1
+```
+
+源码安装器会注册当前目录为本地Marketplace、安装`xiaoh`插件并执行初始化。
 
 ## 插件结构
 
