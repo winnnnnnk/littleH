@@ -40,8 +40,8 @@ jobs:
             plugins/xiaoh/runtime/codex/agent-system/*.json; do
             python -m json.tool "$file" >/dev/null
           done
-          python plugins/xiaoh/scripts/xiaoh.py companions --json > .ci/capabilities.json
-          python -c 'import json; d=json.load(open(".ci/capabilities.json", encoding="utf-8")); assert len(d["bundled_skills"]) == 9'
+          python plugins/xiaoh/scripts/xiaoh.py companions --json \
+            | python -c 'import json,sys; d=json.load(sys.stdin); assert len(d["bundled_skills"]) == 9'
           python -m unittest discover -s tests -v
 
       - name: Verify isolated installation
