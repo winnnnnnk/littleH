@@ -92,6 +92,7 @@ jobs:
             }
           }
           if ($failed) { exit 1 }
+          $ErrorActionPreference = "Continue"
           $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
             plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.ps1 -SelfTest 2>&1
           $status = $LASTEXITCODE
