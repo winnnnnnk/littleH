@@ -1,6 +1,6 @@
 {
   "name": "xiaoh",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Root-thread coordination, governed agent delegation, and durable development context for Codex.",
   "author": {
     "name": "XiaoH Project"

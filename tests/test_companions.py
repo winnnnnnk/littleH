@@ -1,4 +1,5 @@
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -44,6 +45,30 @@ class CompanionTests(unittest.TestCase):
         )
         self.assertEqual("missing", result["external_capabilities"][0]["status"])
         self.assertFalse(result["errors"])
+
+    def test_runtime_update_preserves_existing_vault_knowledge(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            codex = root / "codex"
+            vault = root / "vault"
+            ledger = vault / "04-架构与决策/Agent进化台账.md"
+            vault_agents = vault / "AGENTS.md"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text("retained __CODEX_HOME__ knowledge\n", encoding="utf-8")
+            vault_agents.write_text("stale managed rules\n", encoding="utf-8")
+
+            target_agents, vault_files = XIAOH.copy_runtime(codex, vault)
+            XIAOH.replace_placeholders(
+                [target_agents, codex / "agents", codex / "contexts", codex / "agent-system", codex / "hooks", *vault_files],
+                [("__CODEX_HOME__", codex.as_posix()), ("__OBSIDIAN_VAULT__", vault.as_posix())],
+            )
+
+            self.assertEqual("retained __CODEX_HOME__ knowledge\n", ledger.read_text(encoding="utf-8"))
+            self.assertIn("开发知识库规则", vault_agents.read_text(encoding="utf-8"))
+            self.assertNotIn(
+                "__CODEX_HOME__",
+                (vault / "04-架构与决策/Agent协作角色.md").read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

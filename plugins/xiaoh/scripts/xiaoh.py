@@ -225,15 +225,35 @@ def replace_placeholders(roots: list[Path], replacements: list[tuple[str, str]])
                 path.write_text(updated, encoding="utf-8")
 
 
-def copy_runtime(codex: Path, vault: Path) -> Path:
+def sync_vault_runtime(vault: Path) -> list[Path]:
+    source = RUNTIME / "obsidian/development-vault"
+    touched: list[Path] = []
+    for source_path in source.rglob("*"):
+        destination = vault / source_path.relative_to(source)
+        if source_path.is_dir():
+            destination.mkdir(parents=True, exist_ok=True)
+        elif not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, destination)
+            touched.append(destination)
+    for relative in ("AGENTS.md", "04-架构与决策/Agent协作角色.md"):
+        destination = vault / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / relative, destination)
+        if destination not in touched:
+            touched.append(destination)
+    (vault / ".obsidian").mkdir(exist_ok=True)
+    return touched
+
+
+def copy_runtime(codex: Path, vault: Path) -> tuple[Path, list[Path]]:
     source = RUNTIME / "codex"
     for name in ("agents", "contexts", "agent-system", "hooks"):
         shutil.copytree(source / name, codex / name, dirs_exist_ok=True)
     reserved = codex / "agents/xiaoh.toml"
     if reserved.exists():
         reserved.unlink()
-    shutil.copytree(RUNTIME / "obsidian/development-vault", vault, dirs_exist_ok=True)
-    (vault / ".obsidian").mkdir(exist_ok=True)
+    vault_files = sync_vault_runtime(vault)
 
     incoming = (source / "AGENTS.md").read_text(encoding="utf-8")
     override = codex / "AGENTS.override.md"
@@ -250,7 +270,7 @@ def copy_runtime(codex: Path, vault: Path) -> Path:
     hook = hook.replace("__CODEX_HOME__", codex.as_posix())
     config = merge_config_block(config, hook, "xiaoh-root-agent-hook")
     codex_config_path.write_text(config.rstrip() + "\n", encoding="utf-8")
-    return target_agents
+    return target_agents, vault_files
 
 
 def refresh_templates(codex: Path) -> None:
@@ -389,9 +409,9 @@ def install(args: argparse.Namespace, mode: str) -> dict:
 
     codex.mkdir(parents=True, exist_ok=True)
     vault.mkdir(parents=True, exist_ok=True)
-    target_agents = copy_runtime(codex, vault)
+    target_agents, vault_files = copy_runtime(codex, vault)
     replace_placeholders(
-        [target_agents, codex / "agents", codex / "contexts", codex / "agent-system", codex / "hooks", vault],
+        [target_agents, codex / "agents", codex / "contexts", codex / "agent-system", codex / "hooks", *vault_files],
         [
             ("__CODEX_HOME__/AGENTS.md", target_agents.as_posix()),
             ("__CODEX_HOME__", codex.as_posix()),
