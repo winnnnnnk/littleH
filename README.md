@@ -4,6 +4,8 @@
 
 小H是Codex根对话中的协调者：用户只需描述目标、想法、现象或背景；小H负责形成推荐方案、询问真正影响结果的决策、协调专业Agent、验收结果并沉淀稳定知识。
 
+小H采用“证据优先的建设性异议”：提问、质疑和假设不会被自动当成需求变更；当用户表述与代码、数据模型、配置、文档或运行证据冲突时，小H会说明冲突、影响和推荐结论，再把真正改变业务结果的选择交给用户。缩减范围或写入兼容默认值必须有可定位证据，或有用户在知悉影响后的明确决策；高风险缩减还必须经过独立评审。
+
 本仓库是可直接安装的Codex Marketplace源码，只包含通用能力，不包含客户、项目、仓库、真实任务证据、账号或凭据。
 
 ## 支持环境
@@ -83,6 +85,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 ## 插件结构
 
 - `xiaoh-core`：根线程沟通、分析、路由、验收与知识沉淀。
+- 公共交互门禁：所有专业Agent都必须区分提问、假设、事实纠正、业务决策和执行指令，并在输出中给出证据依据、重大冲突、不确定项和推荐结论。
 - `xiaoh-requirement-routing`：在业务任务进入成员确认、任务创建、OpenSpec或实现前，选择`openspec_only`、`spec_rfc_then_openspec`或`class_skill`，并执行需求工件门禁。
 - Spec+RFC路线固定执行两道评审：先用`xiaoh:spec-rfc-reviewer`审核源工件准入质量；生成OpenSpec后再用`xiaoh:spec-rfc-openspec-consistency-review`审核完整承接与语义一致性。`xiaoh:`只表示插件来源，不表示子Agent；校验器兼容已有的无前缀全局副本。
 - `xiaoh-setup`：显式安装Agent、公共契约、Hook、治理校验器和空白Vault。

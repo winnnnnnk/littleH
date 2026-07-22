@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.3",
+  "schema_version": "1.4",
   "policy": {
     "root_agent": "xiaoh",
     "selection_rule": "root_agent 固定为小H且不进入委派列表；选择全部 required_agents；optional_agents 只有在任务事实触发时使用；其他角色视为过度路由",
@@ -317,6 +317,80 @@
       "retroactive_normalization": false,
       "consistency_reset": false,
       "rationale": "实现状态变化不要求重新确认Spec+RFC。"
+    }
+  ],
+  "interaction_cases": [
+    {
+      "id": "interaction-question-not-decision",
+      "signal": "question_not_decision",
+      "prompt": "都不做这个流程，为什么还要确认？",
+      "user_act": "question",
+      "baseline_change": "none",
+      "evidence_status": "conflicted",
+      "scope_reduction_present": false,
+      "scope_reduction_basis": "not_applicable",
+      "expected_outcome": "解释并复核事实，不改变基线或删除范围。",
+      "rationale": "疑问和反问不是业务确认。"
+    },
+    {
+      "id": "interaction-hypothesis-needs-evidence",
+      "signal": "hypothesis_not_decision",
+      "prompt": "这个字段应该不用迁吧？",
+      "user_act": "hypothesis",
+      "baseline_change": "none",
+      "evidence_status": "insufficient",
+      "scope_reduction_present": false,
+      "scope_reduction_basis": "not_applicable",
+      "expected_outcome": "把说法记录为待验证假设，不据此实施。",
+      "rationale": "不确定表达不能成为范围缩减依据。"
+    },
+    {
+      "id": "interaction-supported-fact-correction",
+      "signal": "supported_fact_correction",
+      "prompt": "我刚才看错了，这个字段实际属于另一个表。",
+      "user_act": "fact_correction",
+      "baseline_change": "none",
+      "evidence_status": "supported",
+      "scope_reduction_present": false,
+      "scope_reduction_basis": "not_applicable",
+      "expected_outcome": "接受有证据支持的事实纠正并更新分析。",
+      "rationale": "建设性异议不等于拒绝正确纠正。"
+    },
+    {
+      "id": "interaction-conflicting-fact-correction",
+      "signal": "conflicting_fact_correction",
+      "prompt": "这个字段属于模块A，所以模块B一定不用处理。",
+      "user_act": "fact_correction",
+      "baseline_change": "none",
+      "evidence_status": "conflicted",
+      "scope_reduction_present": false,
+      "scope_reduction_basis": "not_applicable",
+      "expected_outcome": "指出名称推断与实际所有权证据的冲突。",
+      "rationale": "字段名称和模块前缀不能单独证明数据归属。"
+    },
+    {
+      "id": "interaction-evidence-scope-reduction",
+      "signal": "evidence_scope_reduction",
+      "prompt": "证据确认该对象没有写入者、读取者和兼容用途，按此缩减范围。",
+      "user_act": "execution_instruction",
+      "baseline_change": "confirmed",
+      "evidence_status": "supported",
+      "scope_reduction_present": true,
+      "scope_reduction_basis": "evidence_supported",
+      "expected_outcome": "记录证据、影响和验证后缩减范围。",
+      "rationale": "范围缩减有直接事实依据。"
+    },
+    {
+      "id": "interaction-decision-scope-reduction",
+      "signal": "decision_scope_reduction",
+      "prompt": "我确认不保留这部分历史数据，并接受已说明的兼容影响。",
+      "user_act": "business_decision",
+      "baseline_change": "confirmed",
+      "evidence_status": "conflicted",
+      "scope_reduction_present": true,
+      "scope_reduction_basis": "explicit_business_decision",
+      "expected_outcome": "保留事实冲突和影响记录，按明确业务选择更新目标。",
+      "rationale": "用户可以改变业务目标，但不能抹去当前事实。"
     }
   ]
 }

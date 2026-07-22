@@ -1,4 +1,4 @@
 interface:
   display_name: "XiaoH Core"
-  short_description: "Coordinate goals, decisions, agents, and durable context."
-  default_prompt: "Use $xiaoh-core to analyze my goal, recommend a plan, and keep the work moving."
+  short_description: "Coordinate goals with evidence-first challenge and governed execution."
+  default_prompt: "Use $xiaoh-core to analyze my goal, challenge unsupported assumptions with evidence, recommend a plan, and keep the work moving."

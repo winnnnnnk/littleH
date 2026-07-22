@@ -77,6 +77,19 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 - 长期共享知识：协调 Agent 指定的 Obsidian 页面、ADR、术语表和项目导航。
 - 发生冲突时按事实维度判断，不得用当前代码覆盖已确认目标，也不得用 Obsidian 绕过执行权限。
 
+## 证据优先与建设性异议门禁
+
+- 用户拥有目标、取舍和业务结果的决定权；代码、数据、配置、文档和运行证据决定当前实际情况。用户可以改变目标，不能用一句判断改写已经存在的事实。
+- 先区分用户表达是`question`、`hypothesis`、`fact_correction`、`business_decision`还是`execution_instruction`。疑问、反问、质疑和假设默认不改变已确认基线，不得被记录为确认、范围删除或执行授权。
+- 用户说法与当前证据冲突时，Agent必须明确指出冲突、证据、影响和推荐结论；不得用“你说得对”替代核对，也不得为了显得对抗而无证据反驳。
+- 名称相似、字段前缀、目录位置或历史习惯只能形成假设，不能单独证明职责和数据归属。必须核对真实所有者、写入者、读取者、约束、生命周期和兼容行为。
+- 所有重要结论必须区分`observed_fact`、`user_goal`、`user_assumption`、`inference`、`confirmed_decision`和`unknown`。证据不足时使用“风险待确认”，不得伪装成已证实结论。
+- 发现实质冲突时，输出至少包含当前理解、事实证据、冲突点、结果影响和推荐结论；只有剩余分歧会改变业务结果时才询问用户。
+- 删除范围、跳过校验、丢弃历史数据或引入固定默认值，必须有直接证据或明确业务决策。固定值还必须说明来源、语义、兼容影响和验证方式；无来源值不得自行确定。
+- 高风险任务中的范围缩减或证据冲突必须经过未参与原判断的适用角色独立评审。实现者和协调者不能用自身结论替代该评审。
+- 专业Agent的结果必须报告`evidence_basis`、`material_conflicts`、`uncertainties`和`recommended_conclusion`；发现任务简报把疑问当决策或与事实冲突时停止副作用并交由协调Agent重新对账。
+- schema 1.4任务上下文记录交互类型、证据状态、冲突和范围缩减依据。除只读分析外，新的正式生命周期动作不得使用缺少该状态的旧schema绕过门禁。
+
 ## 知识库写入路径门禁
 
 - `~/.xiaoh/config.json`中的`obsidian_vault`是小H长期知识写入的唯一Vault事实源；不得根据当前打开的Obsidian窗口、历史路径、目录名称或相似用途推断目标Vault。
@@ -108,7 +121,7 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 - 全局能力评估不得因为发现业务仓库中存在相关配置，就升级为业务修复；`global_agent_capability` 禁止创建业务 Playbook task、业务 OpenSpec、业务分支或业务仓库写入。
 - Playbook 平台能力不得借下游项目承载实现；`playbook_platform` 禁止把业务 workspace task 当作平台变更事实源，也禁止修改无关下游业务仓库。
 - 只有 `business_project` 可以进入具体项目的 Playbook 生命周期。若本轮从全局能力或平台能力切换到业务项目，必须先说明目标变化、影响范围和推荐做法，并取得用户明确确认；不得用“继续”等未指明范围的回复推定跨域授权。
-- schema 1.3 任务上下文必须记录 `intent.domain`、上一意图域和跨域确认事实；验证失败时不得委派、创建业务任务或产生业务写入。
+- schema 1.4任务上下文必须记录`intent.domain`、上一意图域、跨域确认事实和`interaction`证据状态；验证失败时不得委派、创建业务任务或产生业务写入。
 
 ## 需求工件路由门禁
 
@@ -129,15 +142,15 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 - 总体业务、架构、数据或安全语义实质变化时，先提升Spec+RFC修订号并重新验证、评审、确认，再把受影响OpenSpec一致性状态重置为`pending`。仅tasks状态或验证证据变化不触发重新确认。
 - 已有workspace task或OpenSpec后发现漏跑Spec+RFC时进入`retroactive_normalization`：暂停OpenSpec审批和实现，保留已确认内容，由小H从现有证据补齐Spec+RFC并通过一致性审核后恢复。
 - workspace root不得保存业务需求产物。Spec+RFC可先在对话中确认；member归属和task创建后保存到总体需求负责member的worktree。Obsidian只保存验收后的稳定结论，不能替代仓库实施事实源。
-- schema 1.3的业务任务上下文必须携带`requirements`状态，包括路由、理由、风险信号、`required_gates`及各工件状态。执行最终member确认、task创建、OpenSpec编写/确认、task启动或实现前运行`validate.py --requirement-gate <context> --action <action>`；失败时不得靠文字承诺绕过。
+- schema 1.4的业务任务上下文必须携带`requirements`和`interaction`状态，包括路由、理由、风险信号、证据冲突、范围缩减依据、`required_gates`及各工件状态。执行最终member确认、task创建、OpenSpec编写/确认、task启动或实现前运行`validate.py --requirement-gate <context> --action <action>`；失败时不得靠文字承诺绕过。
 
 ## 任务上下文包
 
 开始工作前先读取协调 Agent 提供的任务上下文包。上下文包应按任务需要包含：
 
 - 结构化模板：`__CODEX_HOME__/agent-system/task-context.template.json`。
-- 新建正式上下文使用 schema 1.3，并先记录唯一 `intent.domain`；schema 1.2 仅兼容已有任务和历史证据。
-- schema 1.3业务任务还必须记录需求工件路由、风险信号、Spec+RFC状态、显式Skill执行证据、OpenSpec一致性与追溯状态、绕过理由和遗漏补救状态。
+- 新建正式上下文使用schema 1.4，并先记录唯一`intent.domain`和交互证据状态；schema 1.2、1.3仅兼容已有任务和历史证据，除只读分析外不得发起新的生命周期动作。
+- schema 1.4业务任务还必须记录需求工件路由、风险信号、用户表达类型、证据冲突、范围缩减依据、Spec+RFC状态、显式Skill执行证据、OpenSpec一致性与追溯状态、绕过理由和遗漏补救状态。
 - 正式委派优先复制模板形成任务级 JSON，并在下发前执行 `python3 __CODEX_HOME__/agent-system/validate.py --task-context <path>`。
 - 每次正式 `spawn_agent`/`Agent` 委派的消息正文必须逐行携带 `task_id: ...`、`task_context: <绝对路径>`、`context_hash: <SHA-256>`、`delegated_agent: <已登记角色>`；四项必须与已校验上下文包和实际委派角色一致，工具参数 `task_name` 必须等于该角色在 `routing.delegation_names` 中的分配值。
 - 正式委派还必须由工具参数提供与 `delegated_agent` 一致的 `agent_type`，用来证明实际加载了对应 `agents/*.toml`。如果当前模型或工具面只提供 `task_name/message/fork_turns`，则专业 Agent 委派能力视为不可用；可以产生不具角色证明力的咨询意见，但不得记录为该专业角色完成，也不得用于通过独立评审门禁。

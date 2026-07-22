@@ -35,6 +35,10 @@ ALLOWED_SANDBOXES = {"read-only", "workspace-write", "danger-full-access"}
 ALLOWED_TASK_TYPES = {"analysis", "design", "implementation", "verification", "review", "operations"}
 ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
 ALLOWED_INTENT_DOMAINS = {"global_agent_capability", "playbook_platform", "business_project"}
+ALLOWED_USER_ACTS = {"question", "hypothesis", "fact_correction", "business_decision", "execution_instruction"}
+ALLOWED_BASELINE_CHANGES = {"none", "proposed", "confirmed"}
+ALLOWED_EVIDENCE_STATUSES = {"not_checked", "supported", "conflicted", "insufficient"}
+ALLOWED_SCOPE_REDUCTION_BASES = {"not_applicable", "evidence_supported", "explicit_business_decision"}
 ALLOWED_ARTIFACT_ROUTES = {"openspec_only", "spec_rfc_then_openspec", "class_skill"}
 ALLOWED_SPEC_RFC_STATUS = {
     "not_required", "pending", "drafting", "validating", "review_pending",
@@ -382,6 +386,9 @@ def validate_requirement_gate(context, action, report):
     if action not in ALLOWED_REQUIREMENT_GATE_ACTIONS:
         report.error("requirement gate action must be one of {}".format(sorted(ALLOWED_REQUIREMENT_GATE_ACTIONS)))
         return
+    if action != "readonly_analysis" and context.get("schema_version") != "1.4":
+        report.error("new requirement lifecycle actions require schema 1.4 interaction evidence")
+    validate_interaction_gate(context, action, report)
     intent = context.get("intent", {})
     if intent.get("domain") != "business_project":
         report.error("requirement lifecycle gates apply only to business_project contexts")
@@ -643,6 +650,109 @@ def active_global_instructions():
     return CODEX / "AGENTS.md"
 
 
+def validate_evidence_backed_change(change, label, interaction, report, require_value=False):
+    required = ["present", "basis", "evidence", "independent_review_status"]
+    if require_value:
+        required += ["target", "value"]
+    if not require_keys(change, required, label, report):
+        return
+    evidence = validate_string_list(change["evidence"], "{}.evidence".format(label), report)
+    if not isinstance(change["present"], bool):
+        report.error("{}.present must be a boolean".format(label))
+        return
+    if not isinstance(change["basis"], str) or change["basis"] not in ALLOWED_SCOPE_REDUCTION_BASES:
+        report.error("{}.basis must be one of {}".format(label, sorted(ALLOWED_SCOPE_REDUCTION_BASES)))
+    review_status = change["independent_review_status"]
+    if not isinstance(review_status, str) or review_status not in ALLOWED_REQUIREMENT_CHECK_STATUS:
+        report.error("{}.independent_review_status must be one of {}".format(
+            label, sorted(ALLOWED_REQUIREMENT_CHECK_STATUS)
+        ))
+    if not change["present"]:
+        if change["basis"] != "not_applicable" or evidence or review_status != "not_required":
+            report.error("absent {} must use not_applicable, empty evidence, and not_required review".format(label))
+        if require_value and (change["target"] is not None or change["value"] is not None):
+            report.error("absent {} must not define target or value".format(label))
+        return
+    if require_value:
+        for key in ("target", "value"):
+            if not isinstance(change[key], str) or not change[key].strip():
+                report.error("{}.{} must be a non-empty string when present".format(label, key))
+    if change["basis"] == "not_applicable":
+        report.error("present {} requires evidence or an explicit business decision".format(label))
+    if interaction["impact_explained"] is not True:
+        report.error("{} requires explained impact".format(label))
+    if change["basis"] == "evidence_supported" and not evidence:
+        report.error("evidence-supported {} requires evidence".format(label))
+    if change["basis"] == "explicit_business_decision" and not (
+        interaction["baseline_change"] == "confirmed"
+        and isinstance(interaction["user_act"], str)
+        and interaction["user_act"] in {"business_decision", "execution_instruction"}
+    ):
+        report.error("decision-based {} requires a confirmed explicit decision".format(label))
+
+
+def validate_interaction(interaction, report):
+    required = [
+        "user_act", "baseline_change", "evidence_status", "material_conflicts",
+        "impact_explained", "scope_reduction", "compatibility_default",
+    ]
+    if not require_keys(interaction, required, "interaction", report):
+        return
+    user_act = interaction["user_act"]
+    baseline_change = interaction["baseline_change"]
+    evidence_status = interaction["evidence_status"]
+    conflicts = validate_string_list(interaction["material_conflicts"], "interaction.material_conflicts", report)
+    if not isinstance(user_act, str) or user_act not in ALLOWED_USER_ACTS:
+        report.error("interaction.user_act must be one of {}".format(sorted(ALLOWED_USER_ACTS)))
+    if not isinstance(baseline_change, str) or baseline_change not in ALLOWED_BASELINE_CHANGES:
+        report.error("interaction.baseline_change must be one of {}".format(sorted(ALLOWED_BASELINE_CHANGES)))
+    if not isinstance(evidence_status, str) or evidence_status not in ALLOWED_EVIDENCE_STATUSES:
+        report.error("interaction.evidence_status must be one of {}".format(sorted(ALLOWED_EVIDENCE_STATUSES)))
+    if not isinstance(interaction["impact_explained"], bool):
+        report.error("interaction.impact_explained must be a boolean")
+    if isinstance(user_act, str) and user_act in {"question", "hypothesis"} and baseline_change != "none":
+        report.error("questions and hypotheses cannot change the confirmed baseline")
+    if baseline_change == "confirmed":
+        if not isinstance(user_act, str) or user_act not in {"business_decision", "execution_instruction"}:
+            report.error("confirmed baseline change requires a business decision or execution instruction")
+        if interaction["impact_explained"] is not True:
+            report.error("confirmed baseline change requires explained impact")
+    if evidence_status == "conflicted" and not conflicts:
+        report.error("conflicted evidence requires material_conflicts")
+    if conflicts and evidence_status != "conflicted":
+        report.error("material_conflicts require evidence_status=conflicted")
+    if conflicts and interaction["impact_explained"] is not True:
+        report.error("material conflicts require explained impact")
+    validate_evidence_backed_change(
+        interaction["scope_reduction"], "interaction.scope_reduction",
+        interaction, report,
+    )
+    validate_evidence_backed_change(
+        interaction["compatibility_default"], "interaction.compatibility_default",
+        interaction, report, require_value=True,
+    )
+
+
+def validate_interaction_gate(context, action, report):
+    protected_actions = {
+        "spec_rfc_confirmation", "member_confirmation", "task_create",
+        "openspec_confirmation", "task_start", "implementation",
+    }
+    if action not in protected_actions or context.get("risk_level") not in {"high", "critical"}:
+        return
+    interaction = context.get("interaction")
+    if not isinstance(interaction, dict):
+        return
+    for key in ("scope_reduction", "compatibility_default"):
+        change = interaction.get(key)
+        if (
+            isinstance(change, dict)
+            and change.get("present") is True
+            and change.get("independent_review_status") != "passed"
+        ):
+            report.error("high-risk {} requires passed independent review before {}".format(key, action))
+
+
 def validate_task_context(data, report, check_paths=True, check_freshness=True):
     required = [
         "schema_version", "task_id", "task_type", "risk_level", "goal", "behavior",
@@ -651,15 +761,17 @@ def validate_task_context(data, report, check_paths=True, check_freshness=True):
     ]
     if not require_keys(data, required, "task context", report):
         return
-    if data["schema_version"] not in {"1.2", "1.3"}:
-        report.error("task context schema_version must be 1.2 or 1.3")
-    if data["schema_version"] == "1.3":
+    if data["schema_version"] not in {"1.2", "1.3", "1.4"}:
+        report.error("task context schema_version must be 1.2, 1.3, or 1.4")
+    if data["schema_version"] in {"1.3", "1.4"}:
         validate_intent(data.get("intent"), data, report)
         domain = data.get("intent", {}).get("domain") if isinstance(data.get("intent"), dict) else None
         if domain == "business_project":
             validate_requirements(data.get("requirements"), report)
         elif data.get("requirements") is not None:
             report.error("requirements must be null outside business_project contexts")
+    if data["schema_version"] == "1.4":
+        validate_interaction(data.get("interaction"), report)
     revision = data["revision"]
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         report.error("revision must be a positive integer")
@@ -1002,10 +1114,10 @@ def validate_run_record(data, report, check_paths=True):
 
 
 def validate_routing_cases(data, report, registered_names):
-    if not require_keys(data, ["schema_version", "policy", "cases"], "routing cases", report):
+    if not require_keys(data, ["schema_version", "policy", "cases", "interaction_cases"], "routing cases", report):
         return
-    if data["schema_version"] != "1.3":
-        report.error("routing cases schema_version must be 1.3")
+    if data["schema_version"] != "1.4":
+        report.error("routing cases schema_version must be 1.4")
     require_keys(data["policy"], ["root_agent", "selection_rule", "independent_review_rule"], "routing policy", report)
     if isinstance(data.get("policy"), dict) and data["policy"].get("root_agent") != ROOT_AGENT:
         report.error("routing policy root_agent must be {}".format(ROOT_AGENT))
@@ -1066,6 +1178,7 @@ def validate_routing_cases(data, report, registered_names):
         if case["risk_level"] in {"high", "critical"} and not review_agents:
             report.error("{} high-risk case requires independent_review_agents".format(label))
     validate_artifact_routing_cases(data.get("artifact_routing_cases"), report)
+    validate_interaction_cases(data.get("interaction_cases"), report)
 
 
 def validate_artifact_routing_cases(cases, report):
@@ -1119,6 +1232,48 @@ def validate_artifact_routing_cases(cases, report):
     missing = set(expected) - seen
     if missing:
         report.error("artifact routing regression cases missing signals: {}".format(", ".join(sorted(missing))))
+
+
+def validate_interaction_cases(cases, report):
+    expected = {
+        "question_not_decision": ("question", "none", "conflicted", False, "not_applicable"),
+        "hypothesis_not_decision": ("hypothesis", "none", "insufficient", False, "not_applicable"),
+        "supported_fact_correction": ("fact_correction", "none", "supported", False, "not_applicable"),
+        "conflicting_fact_correction": ("fact_correction", "none", "conflicted", False, "not_applicable"),
+        "evidence_scope_reduction": ("execution_instruction", "confirmed", "supported", True, "evidence_supported"),
+        "decision_scope_reduction": ("business_decision", "confirmed", "conflicted", True, "explicit_business_decision"),
+    }
+    if not isinstance(cases, list):
+        report.error("interaction_cases must be a list")
+        return
+    seen = set()
+    for index, case in enumerate(cases):
+        label = "interaction_cases[{}]".format(index)
+        required = [
+            "id", "signal", "prompt", "user_act", "baseline_change", "evidence_status",
+            "scope_reduction_present", "scope_reduction_basis", "expected_outcome", "rationale",
+        ]
+        if not require_keys(case, required, label, report):
+            continue
+        signal = case["signal"]
+        if signal in seen:
+            report.error("duplicate interaction signal: {}".format(signal))
+        seen.add(signal)
+        if signal not in expected:
+            report.error("{} has unsupported signal {}".format(label, signal))
+            continue
+        actual = (
+            case["user_act"], case["baseline_change"], case["evidence_status"],
+            case["scope_reduction_present"], case["scope_reduction_basis"],
+        )
+        if actual != expected[signal]:
+            report.error("{} classification does not match {} policy".format(label, signal))
+        for key in ("id", "prompt", "expected_outcome", "rationale"):
+            if not isinstance(case[key], str) or not case[key].strip():
+                report.error("{}.{} must be a non-empty string".format(label, key))
+    missing = set(expected) - seen
+    if missing:
+        report.error("interaction regression cases missing signals: {}".format(", ".join(sorted(missing))))
 
 
 def evaluate_routing_case(data, case_id, selected, intent_domain, report):
@@ -1675,6 +1830,58 @@ def self_test(report):
         validate_task_context(unconfirmed_transition, transition_report, check_paths=False)
         if not any("requires explicit user confirmation" in error for error in transition_report.errors):
             report.error("unconfirmed intent transition denial self-test failed")
+        question_as_decision = json.loads((SYSTEM_DIR / "task-context.template.json").read_text(encoding="utf-8"))
+        question_as_decision["interaction"].update({
+            "user_act": "question", "baseline_change": "confirmed", "impact_explained": True,
+        })
+        question_report = Report()
+        validate_task_context(question_as_decision, question_report, check_paths=False)
+        if not any("questions and hypotheses cannot change" in error for error in question_report.errors):
+            report.error("question-as-decision denial self-test failed")
+        evidence_question = json.loads((SYSTEM_DIR / "task-context.template.json").read_text(encoding="utf-8"))
+        evidence_question["interaction"].update({
+            "user_act": "question", "baseline_change": "none", "evidence_status": "conflicted",
+            "material_conflicts": ["The question conflicts with current implementation evidence."],
+            "impact_explained": True,
+        })
+        evidence_question_report = Report()
+        validate_task_context(evidence_question, evidence_question_report, check_paths=False)
+        if evidence_question_report.errors:
+            report.error("evidence-backed question self-test failed")
+        unsupported_reduction = json.loads((SYSTEM_DIR / "task-context.template.json").read_text(encoding="utf-8"))
+        unsupported_reduction["interaction"].update({
+            "user_act": "execution_instruction", "baseline_change": "confirmed", "impact_explained": True,
+        })
+        unsupported_reduction["interaction"]["scope_reduction"].update({
+            "present": True, "basis": "evidence_supported", "evidence": [],
+        })
+        reduction_report = Report()
+        validate_task_context(unsupported_reduction, reduction_report, check_paths=False)
+        if not any("requires evidence" in error for error in reduction_report.errors):
+            report.error("unsupported scope-reduction denial self-test failed")
+        unsupported_default = json.loads((SYSTEM_DIR / "task-context.template.json").read_text(encoding="utf-8"))
+        unsupported_default["interaction"].update({
+            "user_act": "execution_instruction", "baseline_change": "confirmed", "impact_explained": True,
+        })
+        unsupported_default["interaction"]["compatibility_default"].update({
+            "present": True, "target": "required target field", "value": "fixed-value",
+            "basis": "evidence_supported", "evidence": [],
+        })
+        default_report = Report()
+        validate_task_context(unsupported_default, default_report, check_paths=False)
+        if not any("compatibility_default requires evidence" in error for error in default_report.errors):
+            report.error("unsupported compatibility-default denial self-test failed")
+        unreviewed_reduction = json.loads(json.dumps(unsupported_reduction))
+        unreviewed_reduction["risk_level"] = "high"
+        unreviewed_reduction["interaction"]["scope_reduction"].update({
+            "evidence": ["Validated source-to-target field mapping."],
+            "independent_review_status": "pending",
+        })
+        unreviewed_report = Report()
+        validate_task_context(unreviewed_reduction, unreviewed_report, check_paths=False)
+        validate_interaction_gate(unreviewed_reduction, "implementation", unreviewed_report)
+        if not any("requires passed independent review" in error for error in unreviewed_report.errors):
+            report.error("high-risk scope-reduction review denial self-test failed")
         business_context = json.loads((SYSTEM_DIR / "task-context.template.json").read_text(encoding="utf-8"))
         business_context["intent"]["domain"] = "business_project"
         business_context["requirements"] = example_requirements()
@@ -1683,6 +1890,14 @@ def self_test(report):
         validate_requirement_gate(business_context, "implementation", business_report)
         if business_report.errors:
             report.error("valid business requirement gate self-test failed")
+        legacy_business = json.loads(json.dumps(business_context))
+        legacy_business["schema_version"] = "1.3"
+        legacy_business.pop("interaction")
+        legacy_gate_report = Report()
+        validate_task_context(legacy_business, legacy_gate_report, check_paths=False)
+        validate_requirement_gate(legacy_business, "task_create", legacy_gate_report)
+        if not any("require schema 1.4" in error for error in legacy_gate_report.errors):
+            report.error("legacy lifecycle gate denial self-test failed")
 
         pending_spec = json.loads(json.dumps(business_context))
         pending_spec["requirements"]["spec_rfc"].update({

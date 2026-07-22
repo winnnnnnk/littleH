@@ -42,8 +42,8 @@ python3 __CODEX_HOME__/agent-system/validate.py --evaluate-runs /absolute/path/e
 - `__CODEX_HOME__/config.toml` 中浅层调度限制。
 - Agent TOML 与 Obsidian 角色目录是否一致。
 - 路由案例是否引用已注册角色，高风险案例是否包含独立判断角色。
-- schema 1.3 上下文与路由案例是否明确区分全局 Agent 能力、Playbook 平台和业务项目。
-- schema 1.3业务上下文是否完整记录需求工件路由、显式Skill执行、Spec+RFC准入评审、OpenSpec一致性评审、追溯和遗漏补救状态。
+- schema 1.4上下文与路由案例是否明确区分全局 Agent 能力、Playbook 平台和业务项目，并区分提问、假设、事实纠正、业务决策和执行指令。
+- schema 1.4业务上下文是否完整记录证据冲突、范围缩减与兼容默认值依据、需求工件路由、显式Skill执行、Spec+RFC准入评审、OpenSpec一致性评审、追溯和遗漏补救状态。
 - Agent 阶段登记是否覆盖全部角色，Obsidian Sandbox 是否与 TOML 一致。
 - 公共契约、上下文索引、模板和进化台账是否存在。
 
@@ -52,7 +52,7 @@ python3 __CODEX_HOME__/agent-system/validate.py --evaluate-runs /absolute/path/e
 - 任务上下文包和原始运行证据属于任务事实，应放在对应 Playbook task evidence 或项目任务目录，不集中复制到 Obsidian。
 - Obsidian 只记录稳定结论、阶段评审和配置进化摘要。
 - `context_hash` 使用任务上下文包文件的 SHA-256，用于确认 Agent 实际消费的是哪个版本。
-- 任务上下文从 schema 1.2 起使用不可变修订链：`revision: 1` 的 `previous_context` 为 `null`；超过新鲜度或事实变化时创建新文件，并用 `previous_context.path/hash` 指向上一版，不直接覆盖旧文件。schema 1.3 新增唯一意图域和跨域确认事实；新任务使用 1.3，1.2 仅兼容已有任务和历史证据。修订链只保留历史审计关系；收口仅接受命令所指最新修订及其哈希的有效运行记录，并只对该修订执行 24 小时新鲜度检查。
+- 任务上下文从schema 1.2起使用不可变修订链：`revision: 1`的`previous_context`为`null`；超过新鲜度或事实变化时创建新文件，并用`previous_context.path/hash`指向上一版，不直接覆盖旧文件。schema 1.3新增唯一意图域；schema 1.4新增交互证据、范围缩减和兼容默认值门禁。新任务使用1.4，1.2和1.3仅兼容已有任务和历史证据，除只读分析外不能发起新的需求生命周期动作。修订链只保留历史审计关系；收口仅接受命令所指最新修订及其哈希的有效运行记录，并只对该修订执行24小时新鲜度检查。
 - 运行记录 schema 1.1 仅保留为可审计的历史格式，不能参与 v1.2 成功收口。schema 1.2 的记录只有在全部 `gates` 和 `verification` 为 `passed`、`metrics.result_accepted` 为 `true` 时才计入成功 Agent；高风险独立评审还必须包含通过的 `independent_review` gate。
 - schema 1.2 的非根 Agent 完成记录必须同时绑定 Hook 原子生成的委派证明和真实 Codex 转录。传统 `Agent` 调用的历史证明绑定父会话、turn 和 tool use；当前协作工具的正式证明必须由一次性意图、`SubagentStart` 实际 `agent_id` 与 developer context、`SubagentStop` 随机回执认证共同形成。原始 `message` 只是不可信传输文本；证明绑定从当前任务上下文确定的权威有效简报、上下文哈希、角色、任务名、Hook 哈希和官方转录路径。旧上下文证明、跨会话意图、未认证启动证明或重复证明不能参与收口。
 - 任何包含密码、令牌、私钥、生产凭据或不必要敏感材料的上下文包都不得创建。
