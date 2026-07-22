@@ -32,6 +32,7 @@ jobs:
             plugins/xiaoh/scripts/xiaoh.py \
             plugins/xiaoh/runtime/codex/agent-system/validate.py \
             plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py \
+            plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py \
             plugins/xiaoh/runtime/codex/hooks/verify_agent_hook_runtime.py
           for file in \
             .agents/plugins/marketplace.json \
@@ -74,6 +75,7 @@ jobs:
         run: |
           bash -n install.sh verify.sh
           python plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py --self-test
+          python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test
 
       - name: Verify Windows entrypoints
         if: runner.os == 'Windows'
@@ -108,3 +110,4 @@ jobs:
             $output | ForEach-Object { Write-Output ("::error::" + $_) }
             exit $status
           }
+          python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test

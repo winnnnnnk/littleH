@@ -75,23 +75,26 @@ def verify(codex_home: Path, cwd: Path) -> None:
             process.kill()
 
     expected_source = (codex_home / "config.toml").resolve()
-    script_paths = [
+    delegation_scripts = [
         codex_home / "hooks/block_reserved_root_agent.py",
         codex_home / "hooks/block_reserved_root_agent.ps1",
     ]
-    expected_scripts = {
+    vault_scripts = [codex_home / "hooks/guard_vault_writes.py"]
+    normalized_scripts = lambda paths: {
         candidate.replace("\\", "/").casefold()
-        for path in script_paths
+        for path in paths
         for candidate in (str(path), str(path.resolve()))
     }
     hooks = [hook for item in result.get("data", []) for hook in item.get("hooks", [])]
     required = [
-        ("PreToolUse", {"preToolUse", "pre_tool_use"}, "^(Agent|spawn_agent)$", ()),
-        ("SubagentStart", {"subagentStart", "subagent_start"}, ".*", ("--subagent-start", "-subagentstart")),
-        ("SubagentStop", {"subagentStop", "subagent_stop"}, ".*", ("--subagent-stop", "-subagentstop")),
+        ("Agent PreToolUse", {"preToolUse", "pre_tool_use"}, "^(Agent|spawn_agent)$", delegation_scripts, ()),
+        ("Vault PreToolUse", {"preToolUse", "pre_tool_use"}, "^(apply_patch|exec_command)$", vault_scripts, ()),
+        ("SubagentStart", {"subagentStart", "subagent_start"}, ".*", delegation_scripts, ("--subagent-start", "-subagentstart")),
+        ("SubagentStop", {"subagentStop", "subagent_stop"}, ".*", delegation_scripts, ("--subagent-stop", "-subagentstop")),
     ]
     hashes = []
-    for label, event_names, matcher, command_flags in required:
+    for label, event_names, matcher, script_paths, command_flags in required:
+        expected_scripts = normalized_scripts(script_paths)
         matches = [
             hook for hook in hooks
             if hook.get("matcher") == matcher
@@ -110,7 +113,7 @@ def verify(codex_home: Path, cwd: Path) -> None:
         if not hook.get("currentHash"):
             raise RuntimeError(f"Codex hooks/list 未返回 {label} 当前哈希")
         hashes.append(f"{label}={hook['currentHash']}")
-    print("Agent 委派运行时门禁已激活：" + ", ".join(hashes))
+    print("小H运行时门禁已激活：" + ", ".join(hashes))
 
 
 def main() -> None:

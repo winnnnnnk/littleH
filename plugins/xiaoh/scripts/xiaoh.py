@@ -233,6 +233,7 @@ def copy_runtime(codex: Path, vault: Path) -> Path:
     if reserved.exists():
         reserved.unlink()
     shutil.copytree(RUNTIME / "obsidian/development-vault", vault, dirs_exist_ok=True)
+    (vault / ".obsidian").mkdir(exist_ok=True)
 
     incoming = (source / "AGENTS.md").read_text(encoding="utf-8")
     override = codex / "AGENTS.override.md"
@@ -242,13 +243,13 @@ def copy_runtime(codex: Path, vault: Path) -> Path:
         merged = merge_marked_block(merged, incoming, marker)
     target_agents.write_text(merged.rstrip() + "\n", encoding="utf-8")
 
-    config_path = codex / "config.toml"
-    config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    codex_config_path = codex / "config.toml"
+    config = codex_config_path.read_text(encoding="utf-8") if codex_config_path.exists() else ""
     config = update_agents_section(config)
     hook = (source / "root-agent-hook.toml").read_text(encoding="utf-8")
     hook = hook.replace("__CODEX_HOME__", codex.as_posix())
     config = merge_config_block(config, hook, "xiaoh-root-agent-hook")
-    config_path.write_text(config.rstrip() + "\n", encoding="utf-8")
+    codex_config_path.write_text(config.rstrip() + "\n", encoding="utf-8")
     return target_agents
 
 
@@ -263,9 +264,25 @@ def refresh_templates(codex: Path) -> None:
     run_record.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def doctor(codex: Path, vault: Path, runtime: bool = False) -> dict:
+def doctor(codex: Path, vault: Path, config_path: Path, runtime: bool = False) -> dict:
     companions = companion_report()
     errors: list[str] = list(companions["errors"])
+    plugin_version = load_json(PLUGIN_MANIFEST)["version"]
+    try:
+        local = load_json(config_path)
+        configured_vault = Path(local["obsidian_vault"]).expanduser().resolve()
+        installed_version = local["installed_version"]
+        if not isinstance(installed_version, str):
+            raise ValueError("installed_version必须是字符串")
+        if configured_vault != vault:
+            errors.append(f"Vault参数与小H配置不一致: {vault} != {configured_vault}")
+        if installed_version.partition("+codex.")[0] != plugin_version.partition("+codex.")[0]:
+            errors.append(f"小H运行时版本漂移: 已部署 {installed_version}，当前插件 {plugin_version}")
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        installed_version = None
+        errors.append(f"小H本地配置无效: {config_path}: {exc}")
+    if not (vault / ".obsidian").is_dir():
+        errors.append(f"配置路径不是有效Obsidian Vault: {vault}")
     actual_agents = {path.stem for path in (codex / "agents").glob("*.toml")}
     if "xiaoh" in actual_agents:
         errors.append("保留根线程 xiaoh 被错误注册为子 Agent")
@@ -280,15 +297,19 @@ def doctor(codex: Path, vault: Path, runtime: bool = False) -> dict:
     active_agents = override if override.exists() and override.read_text(encoding="utf-8").strip() else codex / "AGENTS.md"
     if not active_agents.exists() or "<!-- global-agent-common-contract:start -->" not in active_agents.read_text(encoding="utf-8"):
         errors.append("生效的 AGENTS 文件缺少小H公共契约")
-    config_path = codex / "config.toml"
-    config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    for expected in ("max_threads = 4", "max_depth = 1", "interrupt_message = true", "# xiaoh-root-agent-hook:start"):
+    codex_config_path = codex / "config.toml"
+    config = codex_config_path.read_text(encoding="utf-8") if codex_config_path.exists() else ""
+    for expected in (
+        "max_threads = 4", "max_depth = 1", "interrupt_message = true",
+        "# xiaoh-root-agent-hook:start", "guard_vault_writes.py",
+    ):
         if expected not in config:
             errors.append(f"config.toml 缺少: {expected}")
     for required in (
         codex / "agent-system/validate.py",
         codex / "hooks/block_reserved_root_agent.py",
         codex / "hooks/block_reserved_root_agent.ps1",
+        codex / "hooks/guard_vault_writes.py",
         vault / "04-架构与决策/Agent协作角色.md",
         vault / "04-架构与决策/Agent进化台账.md",
     ):
@@ -298,6 +319,7 @@ def doctor(codex: Path, vault: Path, runtime: bool = False) -> dict:
     commands = [
         [sys.executable, str(codex / "agent-system/validate.py"), "--self-test"],
         [sys.executable, str(codex / "hooks/block_reserved_root_agent.py"), "--self-test"],
+        [sys.executable, str(codex / "hooks/guard_vault_writes.py"), "--self-test"],
         [sys.executable, str(codex / "agent-system/validate.py"), "--task-context", str(codex / "agent-system/task-context.template.json")],
         [sys.executable, str(codex / "agent-system/validate.py"), "--run-record", str(codex / "agent-system/run-record.template.json")],
         [
@@ -316,7 +338,7 @@ def doctor(codex: Path, vault: Path, runtime: bool = False) -> dict:
             [sys.executable, str(codex / "hooks/verify_agent_hook_runtime.py"), "--codex-home", str(codex), "--cwd", os.getcwd()]
         )
     env = os.environ.copy()
-    env.update({"CODEX_HOME": str(codex), "XIAOH_VAULT": str(vault)})
+    env.update({"CODEX_HOME": str(codex), "XIAOH_VAULT": str(vault), "XIAOH_CONFIG": str(config_path)})
     if not errors:
         for command in commands:
             result = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8")
@@ -328,6 +350,9 @@ def doctor(codex: Path, vault: Path, runtime: bool = False) -> dict:
         "status": "passed" if not errors else "failed",
         "codex_home": str(codex),
         "obsidian_vault": str(vault),
+        "config": str(config_path),
+        "plugin_version": plugin_version,
+        "installed_version": installed_version,
         "runtime_checked": runtime,
         "capabilities": companions,
         "warnings": companions["warnings"],
@@ -378,6 +403,7 @@ def install(args: argparse.Namespace, mode: str) -> dict:
     for executable in (
         codex / "agent-system/validate.py",
         codex / "hooks/block_reserved_root_agent.py",
+        codex / "hooks/guard_vault_writes.py",
         codex / "hooks/verify_agent_hook_runtime.py",
     ):
         executable.chmod(executable.stat().st_mode | 0o111)
@@ -397,7 +423,7 @@ def install(args: argparse.Namespace, mode: str) -> dict:
         + "\n",
         encoding="utf-8",
     )
-    result = doctor(codex, vault)
+    result = doctor(codex, vault, config_path)
     result["capabilities"] = companions
     result["warnings"] = companions["warnings"]
     result.update({"operation": mode, "version": version, "backup": str(backup), "config": str(config_path)})
@@ -418,7 +444,7 @@ def emit(result: dict, as_json: bool) -> int:
         for warning in result.get("warnings", []):
             print(f"WARNING: {warning}", file=sys.stderr)
         if result["status"] == "passed" and result.get("operation"):
-            print("重启 Codex，在 /hooks 中审核并信任三个 XiaoH Hook，然后运行 doctor --runtime。")
+            print("重启 Codex，在 /hooks 中审核并信任四个 XiaoH Hook，然后运行 doctor --runtime。")
     return 0 if result["status"] == "passed" else 1
 
 
@@ -475,7 +501,7 @@ def main() -> int:
         )
     if args.command in {"setup", "update"}:
         return emit(install(args, args.command), args.json)
-    return emit(doctor(codex, vault, args.runtime), args.json)
+    return emit(doctor(codex, vault, config_path, args.runtime), args.json)
 
 
 if __name__ == "__main__":

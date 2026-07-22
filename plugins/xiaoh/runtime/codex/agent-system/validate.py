@@ -23,6 +23,7 @@ AGENTS_DIR = CODEX / "agents"
 ROOT_AGENT = "xiaoh"
 ROOT_AGENT_HOOK = CODEX / "hooks/block_reserved_root_agent.py"
 ROOT_AGENT_HOOK_WINDOWS = CODEX / "hooks/block_reserved_root_agent.ps1"
+VAULT_WRITE_HOOK = CODEX / "hooks/guard_vault_writes.py"
 HOOK_RUNTIME_VERIFIER = CODEX / "hooks/verify_agent_hook_runtime.py"
 ROLE_CATALOG = OBSIDIAN_VAULT / "04-架构与决策/Agent协作角色.md"
 EVOLUTION_LEDGER = OBSIDIAN_VAULT / "04-架构与决策/Agent进化台账.md"
@@ -1389,7 +1390,7 @@ def validate_global(report):
         instructions, CODEX / "config.toml", CODEX / "contexts/INDEX.md",
         ROLE_CATALOG, EVOLUTION_LEDGER, SYSTEM_DIR / "task-context.template.json",
         SYSTEM_DIR / "run-record.template.json", ROUTING_CASES, EVOLUTION_POLICY, AGENT_STAGES,
-        ROOT_AGENT_HOOK, ROOT_AGENT_HOOK_WINDOWS, HOOK_RUNTIME_VERIFIER,
+        ROOT_AGENT_HOOK, ROOT_AGENT_HOOK_WINDOWS, VAULT_WRITE_HOOK, HOOK_RUNTIME_VERIFIER,
     ]
     for path in required_paths:
         if not path.exists():
@@ -1495,6 +1496,8 @@ def validate_global(report):
                 'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}" -SubagentStart\''.format(ROOT_AGENT_HOOK_WINDOWS.as_posix()),
                 'command = \'python3 "{}" --subagent-stop\''.format(ROOT_AGENT_HOOK.as_posix()),
                 'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}" -SubagentStop\''.format(ROOT_AGENT_HOOK_WINDOWS.as_posix()),
+                'command = \'python3 "{}"\''.format(VAULT_WRITE_HOOK.as_posix()),
+                'command_windows = \'py -3 "{}"\''.format(VAULT_WRITE_HOOK.as_posix()),
             ]
             for expected in expected_commands:
                 if expected not in hook_block.group(0):
@@ -1503,6 +1506,8 @@ def validate_global(report):
                 report.error("xiaoh root-agent hook must include the SubagentStart proof binder")
             if not re.search(r'^\[\[hooks\.SubagentStop\]\]\s*$[\s\S]*?^matcher\s*=\s*["\']\.\*["\']\s*$', hook_block.group(0), re.M):
                 report.error("xiaoh root-agent hook must include the SubagentStop proof attestor")
+            if not re.search(r'^matcher\s*=\s*["\']\^\(apply_patch\|exec_command\)\$["\']\s*$', hook_block.group(0), re.M):
+                report.error("xiaoh root-agent hook must include the Obsidian Vault write gate")
 
     for template, validator in (
         (SYSTEM_DIR / "task-context.template.json", validate_task_context),

@@ -36,7 +36,7 @@ codex plugin add xiaoh@xiaoh
 - Obsidian：`~/obsidian/development-vault`
 - 本地配置：`~/.xiaoh/config.json`
 
-初始化完成后重启Codex，在`/hooks`中审核并信任`PreToolUse`、`SubagentStart`、`SubagentStop`三个Hook，然后说：
+初始化完成后重启Codex，在`/hooks`中审核并信任Agent委派、Vault路径、`SubagentStart`、`SubagentStop`四个Hook，然后说：
 
 ```text
 小H，检查当前环境和Hook是否生效
@@ -87,6 +87,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 - Spec+RFC路线固定执行两道评审：先用`xiaoh:spec-rfc-reviewer`审核源工件准入质量；生成OpenSpec后再用`xiaoh:spec-rfc-openspec-consistency-review`审核完整承接与语义一致性。`xiaoh:`只表示插件来源，不表示子Agent；校验器兼容已有的无前缀全局副本。
 - `xiaoh-setup`：显式安装Agent、公共契约、Hook、治理校验器和空白Vault。
 - `xiaoh-doctor`：静态及运行时诊断。
+- Vault写入门禁：只接受`~/.xiaoh/config.json`中配置的唯一Obsidian Vault；显式指向其他Vault、包含`..`或通过符号链接逃逸的文件/命令调用会在执行前被拒绝。
 - `xiaoh-update`：备份后同步当前插件版本，保留本地路径和知识。
 - 8个通用专业角色：Java探索、Java架构、Java实现、前端实现、PKI领域、PKI安全、测试验证、代码质量评审。
 - 5个通用方案Skill：需求工件路由、Spec/RFC、方案评审、OpenSpec一致性评审、适用性工程。

@@ -12,7 +12,7 @@ Use the deterministic plugin script at `../../scripts/xiaoh.py`, resolved from t
 3. If the user explicitly requested initialization and no path conflict changes the result, proceed. Ask one focused question only when a different target path or an existing unregistered Agent requires a decision.
 4. Run `python3 ../../scripts/xiaoh.py setup --json`, passing `--codex-home` or `--vault` only when selected.
 5. Setup automatically installs machine-readable Codex companion plugins from `../../dependencies.json`. Report the backup directory, installed version, capability status, static validation result, warnings, and any conflict exactly.
-6. Tell the user to restart Codex, review and trust the three XiaoH Hooks in `/hooks`, then use `$xiaoh-doctor` with runtime verification.
+6. Tell the user to restart Codex, review and trust the four XiaoH Hooks in `/hooks` (Agent delegation, Vault path, SubagentStart, SubagentStop), then use `$xiaoh-doctor` with runtime verification.
 
 Never initialize a business project, copy project knowledge, or store credentials as part of this Skill.
 Never download or execute installers for external binaries. Optional external capabilities are detected and reported by the deterministic script.

@@ -10,7 +10,7 @@ Use `../../scripts/xiaoh.py`, resolved from this Skill directory.
 1. Run `python3 ../../scripts/xiaoh.py plan --json` and read the existing local XiaoH configuration.
 2. Confirm that the resolved targets are the installed XiaoH paths. Ask only if paths conflict or an unregistered Agent prevents a safe update.
 3. Run `python3 ../../scripts/xiaoh.py update --json`.
-4. Report the new version, backup location, capability status, validation result, and preserved local paths.
+4. Report the new version, backup location, capability status, validation result, preserved local paths, configured Vault root, and actual files written by the update.
 5. If Hook files changed, require a Codex restart and fresh `/hooks` review before claiming runtime activation.
 6. Run or recommend `$xiaoh-doctor` after the restart.
 
