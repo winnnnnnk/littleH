@@ -1,0 +1,4 @@
+interface:
+  display_name: "小H任务即时收口"
+  short_description: "任务或阶段完成后按意图域即时收口稳定成果"
+  default_prompt: "Use $xiaoh-task-closeout to close this completed task into the correct intent-domain record immediately."

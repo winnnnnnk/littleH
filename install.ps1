@@ -16,7 +16,7 @@ if ($LASTEXITCODE -ne 0) { throw "安装小H Plugin失败" }
 
 $py = Get-Command py -ErrorAction SilentlyContinue
 $python = Get-Command python -ErrorAction SilentlyContinue
-if ($py) { & $py.Source -3 $Script setup }
-elseif ($python) { & $python.Source $Script setup }
+if ($py) { & $py.Source -3 $Script setup --allow-degraded }
+elseif ($python) { & $python.Source $Script setup --allow-degraded }
 else { throw "缺少Python 3" }
 if ($LASTEXITCODE -ne 0) { throw "初始化小H运行环境失败" }

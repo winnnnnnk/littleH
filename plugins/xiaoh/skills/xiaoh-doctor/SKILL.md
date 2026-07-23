@@ -7,8 +7,10 @@ description: Diagnose and verify a XiaoH installation, including registered spec
 
 Use `../../scripts/xiaoh.py`, resolved from this Skill directory.
 
-1. Run `python3 ../../scripts/xiaoh.py doctor --json` for static verification.
+1. Run `python3 ../../scripts/xiaoh.py doctor --json --active-skill-root <absolute path of this Skill directory>` for static verification. This binds the report to the Skill version loaded by the current thread.
 2. Add `--runtime` only after Codex has restarted and the user says the Hooks were reviewed and trusted, or explicitly requests runtime verification.
-3. Report the overall status first, then plugin/deployed version alignment, configured Vault and `.obsidian` marker, bundled Skill count, companion plugin status, optional external capability status, and each actionable failure with its recovery condition.
-4. Do not claim runtime delegation gates are active from static success alone.
-5. Do not repair files unless the user also asks to initialize or update; use `$xiaoh-setup` or `$xiaoh-update` for writes.
+3. Read `../../managed-automations.json` and the static `automations` report. If the scheduled-task tool is available, call its read/view operation for every configured task ID and inspect local task files only to resolve duplicates or missing IDs; never modify them.
+4. Verify that each existing task invokes the expected namespaced Skill and that the configured template version matches. Treat the optional paused weekly task as healthy; treat a missing or drifted daily task as `degraded`, not as a XiaoH core failure.
+5. Report the overall status first, then plugin/deployed version alignment, configured Vault and `.obsidian` marker, bundled Skill count, companion plugin status, optional external capability status, managed automation status, and each actionable failure with its recovery condition.
+6. Do not claim runtime delegation or Vault gates are active from static success alone. Confirm that scheduled runs use the same trusted Hook environment before reporting automation write protection as verified.
+7. Do not repair files or tasks unless the user also asks to initialize or update; use `$xiaoh-setup` or `$xiaoh-update` for writes.

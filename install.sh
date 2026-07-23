@@ -14,4 +14,4 @@ done
 mkdir -p "$CODEX_TARGET"
 codex plugin marketplace add "$ROOT" --json
 codex plugin add xiaoh@xiaoh --json
-python3 "$ROOT/plugins/xiaoh/scripts/xiaoh.py" setup
+python3 "$ROOT/plugins/xiaoh/scripts/xiaoh.py" setup --allow-degraded

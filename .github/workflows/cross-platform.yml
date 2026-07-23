@@ -11,25 +11,27 @@ permissions:
 
 jobs:
   verify:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
+        python: ["3.9", "3.11"]
 
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python }}
 
       - name: Validate Python and JSON
         shell: bash
         run: |
           python -m py_compile \
             plugins/xiaoh/scripts/xiaoh.py \
+            plugins/xiaoh/skills/xiaoh-task-closeout/scripts/closeout_key.py \
             plugins/xiaoh/runtime/codex/agent-system/validate.py \
             plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py \
             plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py \
@@ -38,11 +40,12 @@ jobs:
             .agents/plugins/marketplace.json \
             plugins/xiaoh/.codex-plugin/plugin.json \
             plugins/xiaoh/dependencies.json \
+            plugins/xiaoh/managed-automations.json \
             plugins/xiaoh/runtime/codex/agent-system/*.json; do
             python -m json.tool "$file" >/dev/null
           done
           python plugins/xiaoh/scripts/xiaoh.py companions --json \
-            | python -c 'import json,sys; d=json.load(sys.stdin); assert len(d["bundled_skills"]) == 9'
+            | python -c 'import json,sys; d=json.load(sys.stdin); assert len(d["bundled_skills"]) == 13'
           python -m unittest discover -s tests -v
 
       - name: Verify isolated installation
@@ -54,6 +57,8 @@ jobs:
             --codex-home .ci/codex \
             --vault .ci/vault \
             --config .ci/xiaoh.json \
+            --active-skill-root plugins/xiaoh/skills/xiaoh-setup \
+            --allow-degraded \
             --json 2>&1
           )
           status=$?
@@ -63,11 +68,28 @@ jobs:
             exit "$status"
           fi
           set -e
+          set +e
           python plugins/xiaoh/scripts/xiaoh.py doctor \
             --codex-home .ci/codex \
             --vault .ci/vault \
             --config .ci/xiaoh.json \
-            --json
+            --active-skill-root plugins/xiaoh/skills/xiaoh-doctor \
+            --json > .ci/doctor.json
+          doctor_status=$?
+          set -e
+          cat .ci/doctor.json
+          python - <<'PY'
+          import json
+          with open(".ci/doctor.json", encoding="utf-8") as stream:
+              report = json.load(stream)
+          assert report["status"] == "degraded", report
+          assert not report["errors"], report
+          assert report["automations"]["status"] == "degraded", report
+          PY
+          if [[ $doctor_status -eq 0 ]]; then
+            echo "::error::Doctor must return non-zero for an incomplete managed automation setup"
+            exit 1
+          fi
 
       - name: Verify macOS entrypoints
         if: runner.os == 'macOS'
@@ -76,6 +98,24 @@ jobs:
           bash -n install.sh verify.sh
           python plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py --self-test
           python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test
+          set +e
+          output=$(
+            CODEX_HOME="$PWD/.ci/codex" \
+            XIAOH_VAULT="$PWD/.ci/vault" \
+            XIAOH_CONFIG="$PWD/.ci/xiaoh.json" \
+            ./verify.sh 2>&1
+          )
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [[ $status -eq 0 ]]; then
+            echo "::error::Incomplete automation setup must remain degraded"
+            exit 1
+          fi
+          if ! grep -q "当前线程实际Skill版本未验证" <<< "$output"; then
+            echo "::error::verify.sh must not claim a loaded Skill version"
+            exit 1
+          fi
 
       - name: Verify Windows entrypoints
         if: runner.os == 'Windows'
@@ -111,3 +151,18 @@ jobs:
             exit $status
           }
           python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test
+          $env:CODEX_HOME = Join-Path $PWD ".ci\codex"
+          $env:XIAOH_VAULT = Join-Path $PWD ".ci\vault"
+          $env:XIAOH_CONFIG = Join-Path $PWD ".ci\xiaoh.json"
+          $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\verify.ps1 2>&1
+          $status = $LASTEXITCODE
+          $text = ($output | Out-String)
+          Write-Host $text
+          if ($status -eq 0) {
+            Write-Output "::error::Incomplete automation setup must remain degraded"
+            exit 1
+          }
+          if (-not $text.Contains("当前线程实际Skill版本未验证")) {
+            Write-Output "::error::verify.ps1 must not claim a loaded Skill version"
+            exit 1
+          }

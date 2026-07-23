@@ -6,9 +6,13 @@
     "spec-rfc-openspec-consistency-review",
     "spec-rfc-reviewer",
     "xiaoh-core",
+    "xiaoh-daily-progress",
     "xiaoh-doctor",
+    "xiaoh-knowledge-review",
+    "xiaoh-project-progress",
     "xiaoh-requirement-routing",
     "xiaoh-setup",
+    "xiaoh-task-closeout",
     "xiaoh-update"
   ],
   "codex_plugins": [

@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "templates": [
+    {
+      "logical_id": "xiaoh.daily-progress",
+      "template_version": "2.0.0",
+      "required": true,
+      "name": "小H每日成果推送",
+      "skill": "xiaoh:xiaoh-daily-progress",
+      "default_status": "ACTIVE",
+      "default_schedule": "daily_at_10_local",
+      "prompt": "使用 $xiaoh:xiaoh-daily-progress，按运行环境本地时区推送前一自然日已经由任务即时收口Skill写入的项目成果。不得延迟补写任务总结或项目进度；发现已完成任务缺少closeout key时只报告“未即时收口”。"
+    },
+    {
+      "logical_id": "xiaoh.weekly-knowledge-review",
+      "template_version": "1.0.0",
+      "required": false,
+      "name": "小H每周知识候选评审",
+      "skill": "xiaoh:xiaoh-knowledge-review",
+      "default_status": "PAUSED",
+      "default_schedule": "weekly_sunday_at_10_30_local",
+      "prompt": "使用 $xiaoh:xiaoh-knowledge-review，仅评审最近一周每日工作记录中的知识候选，形成带来源、适用范围和不确定项的评审报告。不得扫描业务仓库，不得自动覆盖正式知识。"
+    }
+  ]
+}

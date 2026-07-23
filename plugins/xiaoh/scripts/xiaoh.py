@@ -11,14 +11,28 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.9 and 3.10
+    tomllib = None
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME = PLUGIN_ROOT / "runtime"
 PLUGIN_MANIFEST = PLUGIN_ROOT / ".codex-plugin/plugin.json"
 DEPENDENCY_MANIFEST = PLUGIN_ROOT / "dependencies.json"
+AUTOMATION_MANIFEST = PLUGIN_ROOT / "managed-automations.json"
+VAULT_MANIFEST = RUNTIME / "obsidian/managed-vault-files.json"
 REQUIRED_AGENTS = {
     "code_quality_reviewer",
     "frontend_implementer",
@@ -33,7 +47,8 @@ TEXT_EXTENSIONS = {".md", ".toml", ".json", ".py", ".js", ".yaml", ".yml", ".txt
 
 
 def default_local_config() -> Path:
-    return Path.home() / ".xiaoh/config.json"
+    configured = os.environ.get("XIAOH_CONFIG")
+    return Path(configured).expanduser() if configured else Path.home() / ".xiaoh/config.json"
 
 
 def load_json(path: Path, default: dict | None = None) -> dict:
@@ -44,6 +59,297 @@ def load_json(path: Path, default: dict | None = None) -> dict:
     if not isinstance(value, dict):
         raise ValueError(f"{path} 必须包含 JSON 对象")
     return value
+
+
+def file_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def atomic_write_text(path: Path, text: str, backup: Path | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if backup and path.exists():
+        backup_item(path, backup)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.exists():
+            temporary.chmod(path.stat().st_mode)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def atomic_write_json(path: Path, value: dict, backup: Path | None = None) -> None:
+    atomic_write_text(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n", backup)
+
+
+@contextmanager
+def config_lock(config_path: Path):
+    """Serialize XiaoH config read-modify-write operations across processes."""
+    lock_path = config_path.with_suffix(config_path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as stream:
+        if stream.tell() == 0:
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        if os.name == "nt":
+            msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            stream.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def automation_templates() -> dict[str, dict]:
+    manifest = load_json(AUTOMATION_MANIFEST)
+    templates = manifest.get("templates")
+    if not isinstance(templates, list):
+        raise ValueError(f"{AUTOMATION_MANIFEST} 的 templates 必须是数组")
+    result: dict[str, dict] = {}
+    for template in templates:
+        if not isinstance(template, dict):
+            raise ValueError(f"{AUTOMATION_MANIFEST} 包含无效模板")
+        logical_id = template.get("logical_id")
+        version = template.get("template_version")
+        if not isinstance(logical_id, str) or not logical_id or not isinstance(version, str) or not version:
+            raise ValueError(f"{AUTOMATION_MANIFEST} 模板缺少 logical_id 或 template_version")
+        if logical_id in result:
+            raise ValueError(f"{AUTOMATION_MANIFEST} 包含重复 logical_id: {logical_id}")
+        result[logical_id] = template
+    return result
+
+
+def merged_local_config(local: dict, codex: Path, vault: Path, version: str) -> dict:
+    result = dict(local)
+    result.update({
+        "codex_home": str(codex),
+        "obsidian_vault": str(vault),
+        "installed_version": version,
+    })
+    bindings = result.get("managed_automations")
+    if not isinstance(bindings, dict):
+        bindings = {}
+    else:
+        bindings = dict(bindings)
+    for logical_id in automation_templates():
+        binding = bindings.get(logical_id)
+        if not isinstance(binding, dict):
+            bindings[logical_id] = {
+                "task_id": None,
+                "applied_template_version": None,
+                "status": "unbound",
+            }
+    result["managed_automations"] = bindings
+    return result
+
+
+def automation_snapshot(codex: Path, task_id: str) -> tuple[dict | None, str | None]:
+    path = codex / "automations" / task_id / "automation.toml"
+    try:
+        if tomllib is not None:
+            with path.open("rb") as stream:
+                value = tomllib.load(stream)
+        else:
+            value = parse_flat_toml(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("根节点不是对象")
+        return value, None
+    except (OSError, ValueError) as exc:
+        return None, f"无法读取托管定时任务 {task_id}: {path}: {exc}"
+
+
+def parse_flat_toml(text: str) -> dict:
+    """Parse the scalar top-level subset used by Codex automation.toml files."""
+    result: dict = {}
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9_-]+)\s*=\s*(.+)", line)
+        if not match:
+            raise ValueError(f"第 {line_number} 行不是受支持的键值")
+        key, encoded = match.groups()
+        if encoded.startswith('"'):
+            try:
+                value = json.loads(encoded)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"第 {line_number} 行字符串无效: {exc}") from exc
+        elif encoded in {"true", "false"}:
+            value = encoded == "true"
+        elif re.fullmatch(r"-?\d+", encoded):
+            value = int(encoded)
+        elif encoded.startswith(("[", "{")):
+            # Managed automation verification does not inspect arrays or inline tables.
+            value = encoded
+        else:
+            raise ValueError(f"第 {line_number} 行值类型不受支持")
+        result[key] = value
+    return result
+
+
+def automation_report(local: dict, codex: Path) -> dict:
+    bindings = local.get("managed_automations")
+    if not isinstance(bindings, dict):
+        bindings = {}
+    warnings: list[str] = []
+    tasks: list[dict] = []
+    for logical_id, template in automation_templates().items():
+        binding = bindings.get(logical_id)
+        if not isinstance(binding, dict):
+            binding = {}
+        task_id = binding.get("task_id")
+        applied = binding.get("applied_template_version")
+        desired = template["template_version"]
+        snapshot = None
+        if not isinstance(task_id, str) or not task_id:
+            state = "unbound"
+            if template.get("required"):
+                warnings.append(f"必需的托管定时任务尚未绑定: {logical_id}")
+        elif applied != desired:
+            state = "drifted"
+            warnings.append(f"托管定时任务版本漂移: {logical_id}（已应用 {applied}，期望 {desired}）")
+        else:
+            snapshot, snapshot_error = automation_snapshot(codex, task_id)
+            if snapshot_error:
+                state = "unreadable"
+                warnings.append(snapshot_error)
+            else:
+                mismatches = []
+                for key, expected in (
+                    ("id", task_id),
+                    ("name", template["name"]),
+                    ("prompt", template["prompt"]),
+                    ("status", template["default_status"]),
+                ):
+                    if snapshot.get(key) != expected:
+                        mismatches.append(key)
+                if mismatches:
+                    state = "runtime_drifted"
+                    warnings.append(
+                        f"托管定时任务运行态漂移: {logical_id}（{', '.join(mismatches)}）"
+                    )
+                else:
+                    state = "configured"
+        matching_ids = []
+        automation_root = codex / "automations"
+        if automation_root.is_dir():
+            for candidate in automation_root.glob("*/automation.toml"):
+                candidate_id = candidate.parent.name
+                candidate_snapshot, _ = automation_snapshot(codex, candidate_id)
+                if candidate_snapshot and candidate_snapshot.get("name") == template["name"]:
+                    matching_ids.append(candidate_id)
+        if len(matching_ids) > 1:
+            state = "duplicate"
+            warnings.append(
+                f"托管定时任务存在重复实例: {logical_id}（{', '.join(sorted(matching_ids))}）"
+            )
+        tasks.append({
+            "logical_id": logical_id,
+            "task_id": task_id,
+            "required": bool(template.get("required")),
+            "state": state,
+            "applied_template_version": applied,
+            "desired_template_version": desired,
+            "actual_status": snapshot.get("status") if snapshot else None,
+            "actual_prompt_hash": (
+                hashlib.sha256(snapshot["prompt"].encode("utf-8")).hexdigest()
+                if snapshot and isinstance(snapshot.get("prompt"), str)
+                else None
+            ),
+            "matching_task_ids": sorted(matching_ids),
+        })
+    return {
+        "status": "degraded" if warnings else "complete",
+        "tasks": tasks,
+        "warnings": warnings,
+        "runtime_verified": not warnings,
+    }
+
+
+def bind_automation(config_path: Path, codex: Path, vault: Path, logical_id: str, task_id: str) -> dict:
+    templates = automation_templates()
+    if logical_id not in templates:
+        return {
+            "status": "failed",
+            "codex_home": str(codex),
+            "obsidian_vault": str(vault),
+            "config": str(config_path),
+            "errors": [f"未知托管定时任务: {logical_id}"],
+            "warnings": [],
+        }
+    template = templates[logical_id]
+    snapshot, snapshot_error = automation_snapshot(codex, task_id)
+    if snapshot_error:
+        return {
+            "status": "failed",
+            "codex_home": str(codex),
+            "obsidian_vault": str(vault),
+            "config": str(config_path),
+            "errors": [snapshot_error],
+            "warnings": [],
+        }
+    mismatches = [
+        key
+        for key, expected in (
+            ("id", task_id),
+            ("name", template["name"]),
+            ("prompt", template["prompt"]),
+            ("status", template["default_status"]),
+        )
+        if snapshot.get(key) != expected
+    ]
+    if mismatches:
+        return {
+            "status": "failed",
+            "codex_home": str(codex),
+            "obsidian_vault": str(vault),
+            "config": str(config_path),
+            "errors": [f"托管定时任务与模板不一致: {logical_id}（{', '.join(mismatches)}）"],
+            "warnings": [],
+        }
+    with config_lock(config_path):
+        local = load_json(config_path)
+        bindings = local.get("managed_automations")
+        if not isinstance(bindings, dict):
+            bindings = {}
+            local["managed_automations"] = bindings
+        bindings[logical_id] = {
+            "task_id": task_id,
+            "applied_template_version": template["template_version"],
+            "status": "bound",
+            "readback": {
+                "status": snapshot.get("status"),
+                "name": snapshot.get("name"),
+                "prompt_hash": hashlib.sha256(snapshot["prompt"].encode("utf-8")).hexdigest(),
+                "verified_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            },
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        }
+        atomic_write_json(config_path, local, config_path.with_suffix(config_path.suffix + ".bak"))
+    return {
+        "status": "passed",
+        "operation": "bind-automation",
+        "codex_home": str(codex),
+        "obsidian_vault": str(vault),
+        "config": str(config_path),
+        "logical_id": logical_id,
+        "task_id": task_id,
+        "template_version": template["template_version"],
+        "actual_status": snapshot.get("status"),
+        "errors": [],
+        "warnings": [],
+    }
 
 
 def run_codex_json(arguments: list[str]) -> tuple[dict | None, str | None]:
@@ -63,6 +369,28 @@ def run_codex_json(arguments: list[str]) -> tuple[dict | None, str | None]:
     except json.JSONDecodeError as error:
         return None, f"Codex CLI返回了无效JSON: {error}"
     return value, None
+
+
+def installed_xiaoh_plugin() -> tuple[dict | None, str | None]:
+    snapshot, error = run_codex_json(["plugin", "list"])
+    if error:
+        return None, error
+    matches = [
+        item
+        for item in snapshot.get("installed", [])
+        if item.get("pluginId") == "xiaoh@xiaoh" and item.get("enabled")
+    ]
+    if len(matches) != 1:
+        return None, f"无法唯一识别已启用的小H插件: {len(matches)}"
+    item = matches[0]
+    version = item.get("version")
+    if not isinstance(version, str) or not version:
+        return None, "已启用的小H插件缺少版本"
+    return {
+        "plugin_id": item["pluginId"],
+        "version": version,
+        "source": item.get("source"),
+    }, None
 
 
 def companion_report(install_missing: bool = False) -> dict:
@@ -222,16 +550,66 @@ def replace_placeholders(roots: list[Path], replacements: list[tuple[str, str]])
             for old, new in replacements:
                 updated = updated.replace(old, new)
             if updated != text:
-                path.write_text(updated, encoding="utf-8")
+                atomic_write_text(path, updated)
 
 
-def sync_vault_runtime(vault: Path) -> list[Path]:
+def managed_vault_files() -> dict[str, dict]:
+    manifest = load_json(VAULT_MANIFEST)
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        raise ValueError(f"{VAULT_MANIFEST} 的 files 必须是对象")
+    return files
+
+
+def vault_template_report(vault: Path) -> dict:
+    source = RUNTIME / "obsidian/development-vault"
+    warnings = []
+    files = []
+    for relative in managed_vault_files():
+        source_path = source / relative
+        destination = vault / relative
+        expected = file_hash(source_path)
+        actual = file_hash(destination) if destination.is_file() else None
+        state = "current" if actual == expected else ("missing" if actual is None else "drifted")
+        if state != "current":
+            warnings.append(f"Vault受管模板未升级: {relative}（{state}）")
+        files.append({"path": relative, "state": state, "expected_hash": expected, "actual_hash": actual})
+    return {"status": "degraded" if warnings else "complete", "files": files, "warnings": warnings}
+
+
+def sync_vault_runtime(vault: Path) -> tuple[list[Path], list[str]]:
     source = RUNTIME / "obsidian/development-vault"
     touched: list[Path] = []
+    conflicts: list[str] = []
+    managed = managed_vault_files()
+    state_path = vault / ".xiaoh-managed.json"
+    state = load_json(state_path, {"schema_version": "1.0", "files": {}})
+    previous_files = state.get("files")
+    if not isinstance(previous_files, dict):
+        previous_files = {}
+    next_files: dict[str, str] = {}
     for source_path in source.rglob("*"):
-        destination = vault / source_path.relative_to(source)
+        relative = source_path.relative_to(source).as_posix()
+        destination = vault / relative
         if source_path.is_dir():
             destination.mkdir(parents=True, exist_ok=True)
+        elif relative in managed:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source_digest = file_hash(source_path)
+            current_digest = file_hash(destination) if destination.is_file() else None
+            legacy = managed[relative].get("legacy_hashes", [])
+            if (
+                current_digest is None
+                or current_digest == source_digest
+                or current_digest in legacy
+                or current_digest == previous_files.get(relative)
+            ):
+                if current_digest != source_digest:
+                    shutil.copy2(source_path, destination)
+                    touched.append(destination)
+                next_files[relative] = source_digest
+            else:
+                conflicts.append(relative)
         elif not destination.exists():
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, destination)
@@ -243,17 +621,28 @@ def sync_vault_runtime(vault: Path) -> list[Path]:
         if destination not in touched:
             touched.append(destination)
     (vault / ".obsidian").mkdir(exist_ok=True)
-    return touched
+    atomic_write_json(
+        state_path,
+        {
+            "schema_version": "1.0",
+            "template_version": load_json(PLUGIN_MANIFEST)["version"],
+            "files": next_files,
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        },
+    )
+    if state_path not in touched:
+        touched.append(state_path)
+    return touched, conflicts
 
 
-def copy_runtime(codex: Path, vault: Path) -> tuple[Path, list[Path]]:
+def copy_runtime(codex: Path, vault: Path) -> tuple[Path, list[Path], list[str]]:
     source = RUNTIME / "codex"
     for name in ("agents", "contexts", "agent-system", "hooks"):
         shutil.copytree(source / name, codex / name, dirs_exist_ok=True)
     reserved = codex / "agents/xiaoh.toml"
     if reserved.exists():
         reserved.unlink()
-    vault_files = sync_vault_runtime(vault)
+    vault_files, vault_conflicts = sync_vault_runtime(vault)
 
     incoming = (source / "AGENTS.md").read_text(encoding="utf-8")
     override = codex / "AGENTS.override.md"
@@ -261,7 +650,7 @@ def copy_runtime(codex: Path, vault: Path) -> tuple[Path, list[Path]]:
     merged = target_agents.read_text(encoding="utf-8") if target_agents.exists() else ""
     for marker in ("codebase-memory-mcp", "global-agent-common-contract"):
         merged = merge_marked_block(merged, incoming, marker)
-    target_agents.write_text(merged.rstrip() + "\n", encoding="utf-8")
+    atomic_write_text(target_agents, merged.rstrip() + "\n")
 
     codex_config_path = codex / "config.toml"
     config = codex_config_path.read_text(encoding="utf-8") if codex_config_path.exists() else ""
@@ -269,8 +658,8 @@ def copy_runtime(codex: Path, vault: Path) -> tuple[Path, list[Path]]:
     hook = (source / "root-agent-hook.toml").read_text(encoding="utf-8")
     hook = hook.replace("__CODEX_HOME__", codex.as_posix())
     config = merge_config_block(config, hook, "xiaoh-root-agent-hook")
-    codex_config_path.write_text(config.rstrip() + "\n", encoding="utf-8")
-    return target_agents, vault_files
+    atomic_write_text(codex_config_path, config.rstrip() + "\n")
+    return target_agents, vault_files, vault_conflicts
 
 
 def refresh_templates(codex: Path) -> None:
@@ -278,16 +667,49 @@ def refresh_templates(codex: Path) -> None:
     run_record = codex / "agent-system/run-record.template.json"
     context = load_json(template)
     context["freshness"]["checked_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
-    template.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(template, context)
     record = load_json(run_record)
     record["context_hash"] = hashlib.sha256(template.read_bytes()).hexdigest()
-    run_record.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(run_record, record)
 
 
-def doctor(codex: Path, vault: Path, config_path: Path, runtime: bool = False) -> dict:
+def doctor(
+    codex: Path,
+    vault: Path,
+    config_path: Path,
+    runtime: bool = False,
+    active_skill_root: Path | None = None,
+) -> dict:
     companions = companion_report()
     errors: list[str] = list(companions["errors"])
+    warnings: list[str] = []
+    local: dict = {}
     plugin_version = load_json(PLUGIN_MANIFEST)["version"]
+    active_plugin, active_plugin_error = installed_xiaoh_plugin()
+    if active_plugin_error:
+        warnings.append(f"无法验证已启用插件版本: {active_plugin_error}")
+    elif active_plugin["version"].partition("+codex.")[0] != plugin_version.partition("+codex.")[0]:
+        errors.append(
+            f"小H已启用插件版本漂移: 当前 {active_plugin['version']}，检查器 {plugin_version}"
+        )
+    loaded_skill_version = None
+    if active_skill_root is None:
+        warnings.append("当前线程实际Skill版本未验证；请从xiaoh-doctor Skill传入--active-skill-root")
+    else:
+        skill_root = active_skill_root.expanduser().resolve()
+        try:
+            skill_manifest = next(
+                candidate / ".codex-plugin/plugin.json"
+                for candidate in (skill_root, *skill_root.parents)
+                if (candidate / ".codex-plugin/plugin.json").is_file()
+            )
+            loaded_skill_version = load_json(skill_manifest)["version"]
+            if loaded_skill_version.partition("+codex.")[0] != plugin_version.partition("+codex.")[0]:
+                errors.append(
+                    f"当前线程Skill版本漂移: 已加载 {loaded_skill_version}，检查器 {plugin_version}"
+                )
+        except (OSError, KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(f"无法验证当前线程Skill根目录: {skill_root}: {exc}")
     try:
         local = load_json(config_path)
         configured_vault = Path(local["obsidian_vault"]).expanduser().resolve()
@@ -301,8 +723,12 @@ def doctor(codex: Path, vault: Path, config_path: Path, runtime: bool = False) -
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         installed_version = None
         errors.append(f"小H本地配置无效: {config_path}: {exc}")
+    automations = automation_report(local, codex)
+    warnings.extend(automations["warnings"])
     if not (vault / ".obsidian").is_dir():
         errors.append(f"配置路径不是有效Obsidian Vault: {vault}")
+    vault_templates = vault_template_report(vault)
+    warnings.extend(vault_templates["warnings"])
     actual_agents = {path.stem for path in (codex / "agents").glob("*.toml")}
     if "xiaoh" in actual_agents:
         errors.append("保留根线程 xiaoh 被错误注册为子 Agent")
@@ -367,15 +793,19 @@ def doctor(codex: Path, vault: Path, config_path: Path, runtime: bool = False) -
                 errors.append(f"命令失败: {' '.join(command)}\n{summary}")
                 break
     return {
-        "status": "passed" if not errors else "failed",
+        "status": "failed" if errors else ("degraded" if warnings or companions["warnings"] else "passed"),
         "codex_home": str(codex),
         "obsidian_vault": str(vault),
         "config": str(config_path),
         "plugin_version": plugin_version,
         "installed_version": installed_version,
+        "active_plugin": active_plugin,
+        "loaded_skill_version": loaded_skill_version,
         "runtime_checked": runtime,
         "capabilities": companions,
-        "warnings": companions["warnings"],
+        "automations": automations,
+        "vault_templates": vault_templates,
+        "warnings": list(dict.fromkeys([*companions["warnings"], *warnings])),
         "errors": errors,
     }
 
@@ -404,12 +834,13 @@ def install(args: argparse.Namespace, mode: str) -> dict:
         (codex / "agent-system", "codex/agent-system"),
         (codex / "hooks", "codex/hooks"),
         (vault, "obsidian/development-vault"),
+        (config_path, "local/config.json"),
     ):
         backup_item(source, backup / relative)
 
     codex.mkdir(parents=True, exist_ok=True)
     vault.mkdir(parents=True, exist_ok=True)
-    target_agents, vault_files = copy_runtime(codex, vault)
+    target_agents, vault_files, vault_conflicts = copy_runtime(codex, vault)
     replace_placeholders(
         [target_agents, codex / "agents", codex / "contexts", codex / "agent-system", codex / "hooks", *vault_files],
         [
@@ -429,28 +860,28 @@ def install(args: argparse.Namespace, mode: str) -> dict:
         executable.chmod(executable.stat().st_mode | 0o111)
 
     version = load_json(PLUGIN_MANIFEST)["version"]
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        json.dumps(
-            {
-                "codex_home": str(codex),
-                "obsidian_vault": str(vault),
-                "installed_version": version,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    with config_lock(config_path):
+        local = load_json(config_path, {})
+        atomic_write_json(config_path, merged_local_config(local, codex, vault, version))
+    active_skill_root = (
+        Path(args.active_skill_root).expanduser().resolve()
+        if getattr(args, "active_skill_root", None)
+        else None
     )
-    result = doctor(codex, vault, config_path)
+    result = doctor(codex, vault, config_path, active_skill_root=active_skill_root)
+    if vault_conflicts:
+        result["warnings"] = [
+            *result["warnings"],
+            "Vault受管模板存在用户修改，未自动覆盖: " + ", ".join(vault_conflicts),
+        ]
+        if result["status"] == "passed":
+            result["status"] = "degraded"
     result["capabilities"] = companions
-    result["warnings"] = companions["warnings"]
     result.update({"operation": mode, "version": version, "backup": str(backup), "config": str(config_path)})
     return result
 
 
-def emit(result: dict, as_json: bool) -> int:
+def emit(result: dict, as_json: bool, allow_degraded: bool = False) -> int:
     if as_json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
@@ -465,7 +896,12 @@ def emit(result: dict, as_json: bool) -> int:
             print(f"WARNING: {warning}", file=sys.stderr)
         if result["status"] == "passed" and result.get("operation"):
             print("重启 Codex，在 /hooks 中审核并信任四个 XiaoH Hook，然后运行 doctor --runtime。")
-    return 0 if result["status"] == "passed" else 1
+        elif result["status"] == "degraded" and result.get("operation"):
+            print(
+                "小H核心运行时已部署，但初始化尚未完成；请在新Codex任务中运行"
+                " $xiaoh:xiaoh-setup 或 $xiaoh:xiaoh-update 完成托管任务校准。"
+            )
+    return 0 if result["status"] == "passed" or (allow_degraded and result["status"] == "degraded") else 1
 
 
 def configure_stdio() -> None:
@@ -477,17 +913,24 @@ def configure_stdio() -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("plan", "setup", "update", "doctor", "companions"):
+    for name in ("plan", "setup", "update", "doctor", "companions", "bind-automation"):
         command = subparsers.add_parser(name)
         if name != "companions":
             command.add_argument("--codex-home")
             command.add_argument("--vault")
             command.add_argument("--config")
+        if name in {"setup", "update", "doctor"}:
+            command.add_argument("--active-skill-root")
         command.add_argument("--json", action="store_true")
+        if name in {"setup", "update"}:
+            command.add_argument("--allow-degraded", action="store_true")
         if name == "doctor":
             command.add_argument("--runtime", action="store_true")
         if name == "companions":
             command.add_argument("--install", action="store_true")
+        if name == "bind-automation":
+            command.add_argument("--logical-id", required=True)
+            command.add_argument("--task-id", required=True)
     return parser
 
 
@@ -519,9 +962,12 @@ def main() -> int:
             },
             args.json,
         )
+    if args.command == "bind-automation":
+        return emit(bind_automation(config_path, codex, vault, args.logical_id, args.task_id), args.json)
     if args.command in {"setup", "update"}:
-        return emit(install(args, args.command), args.json)
-    return emit(doctor(codex, vault, config_path, args.runtime), args.json)
+        return emit(install(args, args.command), args.json, args.allow_degraded)
+    active_skill_root = Path(args.active_skill_root) if args.active_skill_root else None
+    return emit(doctor(codex, vault, config_path, args.runtime, active_skill_root), args.json)
 
 
 if __name__ == "__main__":

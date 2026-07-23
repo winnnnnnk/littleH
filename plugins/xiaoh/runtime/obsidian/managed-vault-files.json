@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "files": {
+    "CONTEXT.md": {
+      "legacy_hashes": [
+        "3f22c4560ddedadded526929617b8415d1992d52a16f7c00b58d4e485785a857",
+        "59e8e7026fab14ab86ff528b84d77a6b25d10031a8c9226509de3f8cf0328db3"
+      ]
+    },
+    "首页.md": {
+      "legacy_hashes": [
+        "12445dab3c5a6eb232e9595393e697353c61e1f1dae4f8c3a8604add3688ca12",
+        "512ba78461a7c5ccfff073f888cfdac456c8ae43cef03d612c8ea6321adf3759"
+      ]
+    },
+    "01-项目/项目模板.md": {
+      "legacy_hashes": [
+        "9bf80f81f5507a8cc69a01367d259a89b668656f97f70cb4d81255e7ae059308"
+      ]
+    },
+    "07-工作记录/工作记录模板.md": {
+      "legacy_hashes": [
+        "832c8a22b8deee71fe7a6c31104267b1c1c754dbe7b86972b7a7d4d33b068c64",
+        "a3792f38814a9b6f8c233a3e051b926e4e103cb10c51fda7cc057486a4f70c56"
+      ]
+    }
+  }
+}

@@ -51,6 +51,8 @@ For `business_project`, use `$xiaoh-requirement-routing` after read-only fact di
 - Verify the requested outcome and state unverified areas.
 - Store raw evidence with the task, not in Obsidian.
 - Write only accepted, durable conclusions and decision reasons to the configured knowledge base.
+- After verifying an accepted task or meaningful milestone, run `$xiaoh:xiaoh-task-closeout` before declaring completion. It must write the result to the route for the current intent domain; only `business_project` closeouts refresh a project snapshot through `$xiaoh:xiaoh-project-progress`.
+- Treat `$xiaoh:xiaoh-daily-progress` only as a scheduled achievement push and missing-closeout report. Never defer task or project summarization to the daily automation.
 - Surface real improvement evidence as an Agent, contract, Skill, platform, project, or one-off candidate; never mutate permissions automatically.
 
 If the XiaoH runtime is missing, use `$xiaoh-setup`. If behavior or Hook activation is uncertain, use `$xiaoh-doctor`.

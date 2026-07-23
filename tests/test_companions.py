@@ -1,5 +1,7 @@
 import importlib.util
+import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,8 +12,39 @@ SPEC = importlib.util.spec_from_file_location("xiaoh_runtime", SCRIPT)
 XIAOH = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(XIAOH)
 
+CLOSEOUT_SCRIPT = (
+    Path(__file__).parents[1]
+    / "plugins/xiaoh/skills/xiaoh-task-closeout/scripts/closeout_key.py"
+)
+CLOSEOUT_SPEC = importlib.util.spec_from_file_location("xiaoh_closeout_key", CLOSEOUT_SCRIPT)
+CLOSEOUT = importlib.util.module_from_spec(CLOSEOUT_SPEC)
+CLOSEOUT_SPEC.loader.exec_module(CLOSEOUT)
+
 
 class CompanionTests(unittest.TestCase):
+    def write_automation(self, codex, logical_id, task_id, **overrides):
+        template = XIAOH.automation_templates()[logical_id]
+        values = {
+            "version": 1,
+            "id": task_id,
+            "kind": "cron",
+            "name": template["name"],
+            "prompt": template["prompt"],
+            "status": template["default_status"],
+        }
+        values.update(overrides)
+        path = codex / "automations" / task_id / "automation.toml"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            "\n".join(
+                f"{key} = {json.dumps(value, ensure_ascii=False)}"
+                for key, value in values.items()
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return path
+
     def test_installs_declared_plugins_on_a_fresh_machine(self):
         installed = set()
         marketplaces = {"openai-bundled", "openai-primary-runtime"}
@@ -57,18 +90,374 @@ class CompanionTests(unittest.TestCase):
             ledger.write_text("retained __CODEX_HOME__ knowledge\n", encoding="utf-8")
             vault_agents.write_text("stale managed rules\n", encoding="utf-8")
 
-            target_agents, vault_files = XIAOH.copy_runtime(codex, vault)
+            target_agents, vault_files, conflicts = XIAOH.copy_runtime(codex, vault)
             XIAOH.replace_placeholders(
                 [target_agents, codex / "agents", codex / "contexts", codex / "agent-system", codex / "hooks", *vault_files],
                 [("__CODEX_HOME__", codex.as_posix()), ("__OBSIDIAN_VAULT__", vault.as_posix())],
             )
 
+            self.assertFalse(conflicts)
             self.assertEqual("retained __CODEX_HOME__ knowledge\n", ledger.read_text(encoding="utf-8"))
             self.assertIn("开发知识库规则", vault_agents.read_text(encoding="utf-8"))
             self.assertNotIn(
                 "__CODEX_HOME__",
                 (vault / "04-架构与决策/Agent协作角色.md").read_text(encoding="utf-8"),
             )
+
+    def test_local_config_adds_automation_bindings_without_losing_local_values(self):
+        local = {
+            "custom": "retained",
+            "managed_automations": {
+                "xiaoh.daily-progress": {
+                    "task_id": "existing-task",
+                    "applied_template_version": "2.0.0",
+                    "status": "bound",
+                }
+            },
+        }
+
+        merged = XIAOH.merged_local_config(local, Path("/codex"), Path("/vault"), "2.6.0")
+
+        self.assertEqual("retained", merged["custom"])
+        self.assertEqual(
+            "existing-task",
+            merged["managed_automations"]["xiaoh.daily-progress"]["task_id"],
+        )
+        self.assertIn("xiaoh.weekly-knowledge-review", merged["managed_automations"])
+
+    def test_automation_report_degrades_only_for_required_unbound_task(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            codex = Path(temporary)
+            report = XIAOH.automation_report({
+                "managed_automations": {
+                    "xiaoh.weekly-knowledge-review": {
+                        "task_id": None,
+                        "applied_template_version": None,
+                        "status": "unbound",
+                    }
+                }
+            }, codex)
+
+        self.assertEqual("degraded", report["status"])
+        self.assertEqual(1, len(report["warnings"]))
+        self.assertIn("xiaoh.daily-progress", report["warnings"][0])
+
+    def test_bind_automation_preserves_config_and_records_template_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            codex = root / "codex"
+            config = root / "config.json"
+            config.write_text(
+                '{"codex_home": "/codex", "obsidian_vault": "/vault", "custom": "retained"}\n',
+                encoding="utf-8",
+            )
+            self.write_automation(codex, "xiaoh.daily-progress", "task-123")
+
+            result = XIAOH.bind_automation(
+                config,
+                codex,
+                Path("/vault"),
+                "xiaoh.daily-progress",
+                "task-123",
+            )
+            stored = XIAOH.load_json(config)
+
+            self.assertEqual("passed", result["status"])
+            self.assertEqual("retained", stored["custom"])
+            binding = stored["managed_automations"]["xiaoh.daily-progress"]
+            self.assertEqual("task-123", binding["task_id"])
+            self.assertEqual("2.0.0", binding["applied_template_version"])
+            self.assertEqual("ACTIVE", binding["readback"]["status"])
+            self.assertTrue(config.with_suffix(".json.bak").is_file())
+
+    def test_automation_report_detects_runtime_status_and_prompt_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            codex = Path(temporary)
+            self.write_automation(
+                codex,
+                "xiaoh.daily-progress",
+                "task-123",
+                prompt="stale prompt",
+                status="PAUSED",
+            )
+            report = XIAOH.automation_report(
+                {
+                    "managed_automations": {
+                        "xiaoh.daily-progress": {
+                            "task_id": "task-123",
+                            "applied_template_version": "2.0.0",
+                        }
+                    }
+                },
+                codex,
+            )
+
+        task = next(item for item in report["tasks"] if item["logical_id"] == "xiaoh.daily-progress")
+        self.assertEqual("runtime_drifted", task["state"])
+        self.assertEqual("PAUSED", task["actual_status"])
+        self.assertTrue(any("prompt, status" in warning for warning in report["warnings"]))
+
+    def test_automation_report_detects_duplicate_managed_tasks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            codex = Path(temporary)
+            self.write_automation(codex, "xiaoh.daily-progress", "task-1")
+            self.write_automation(
+                codex,
+                "xiaoh.daily-progress",
+                "task-2",
+                prompt="legacy XiaoH daily prompt",
+            )
+            report = XIAOH.automation_report(
+                {
+                    "managed_automations": {
+                        "xiaoh.daily-progress": {
+                            "task_id": "task-1",
+                            "applied_template_version": "2.0.0",
+                        }
+                    }
+                },
+                codex,
+            )
+
+        task = next(item for item in report["tasks"] if item["logical_id"] == "xiaoh.daily-progress")
+        self.assertEqual("duplicate", task["state"])
+        self.assertEqual(["task-1", "task-2"], task["matching_task_ids"])
+
+    def test_python39_fallback_reads_real_automation_shape(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            codex = Path(temporary)
+            path = self.write_automation(codex, "xiaoh.daily-progress", "task-real")
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write('rrule = "RRULE:FREQ=DAILY;BYHOUR=10;BYMINUTE=0"\n')
+                stream.write('target = { type = "project", project_id = "local-1" }\n')
+                stream.write('cwds = ["/workspace"]\n')
+            with patch.object(XIAOH, "tomllib", None):
+                snapshot, error = XIAOH.automation_snapshot(codex, "task-real")
+
+        self.assertIsNone(error)
+        self.assertEqual("task-real", snapshot["id"])
+        self.assertEqual("ACTIVE", snapshot["status"])
+
+    def test_bind_automation_rejects_paused_required_task(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            codex = root / "codex"
+            config = root / "config.json"
+            config.write_text("{}\n", encoding="utf-8")
+            self.write_automation(
+                codex,
+                "xiaoh.daily-progress",
+                "task-paused",
+                status="PAUSED",
+            )
+
+            result = XIAOH.bind_automation(
+                config,
+                codex,
+                root / "vault",
+                "xiaoh.daily-progress",
+                "task-paused",
+            )
+
+        self.assertEqual("failed", result["status"])
+        self.assertIn("status", result["errors"][0])
+
+    def test_atomic_config_failure_keeps_original(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.json"
+            path.write_text('{"value": "original"}\n', encoding="utf-8")
+
+            with patch.object(XIAOH.os, "replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    XIAOH.atomic_write_json(path, {"value": "new"})
+
+            self.assertEqual('{"value": "original"}\n', path.read_text(encoding="utf-8"))
+
+    def test_parallel_bindings_do_not_lose_updates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            codex = root / "codex"
+            config = root / "config.json"
+            config.write_text("{}\n", encoding="utf-8")
+            self.write_automation(codex, "xiaoh.daily-progress", "daily")
+            self.write_automation(codex, "xiaoh.weekly-knowledge-review", "weekly")
+            results = []
+
+            def bind(logical_id, task_id):
+                results.append(
+                    XIAOH.bind_automation(config, codex, root / "vault", logical_id, task_id)
+                )
+
+            threads = [
+                threading.Thread(target=bind, args=("xiaoh.daily-progress", "daily")),
+                threading.Thread(target=bind, args=("xiaoh.weekly-knowledge-review", "weekly")),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            stored = XIAOH.load_json(config)
+
+        self.assertEqual(["passed", "passed"], sorted(item["status"] for item in results))
+        self.assertEqual(
+            {"xiaoh.daily-progress", "xiaoh.weekly-knowledge-review"},
+            set(stored["managed_automations"]),
+        )
+
+    def test_legacy_vault_template_is_upgraded_but_custom_edit_is_preserved(self):
+        legacy_home = """# 开发知识库
+
+- [[01-项目/项目模板|新项目模板]]
+- [[02-领域知识/术语模板|领域知识模板]]
+- [[03-需求与方案/方案模板|需求与方案模板]]
+- [[04-架构与决策/Agent协作角色|Agent 协作角色]]
+- [[04-架构与决策/Agent进化台账|Agent 进化台账]]
+- [[05-开发与测试/验证记录模板|验证记录模板]]
+- [[06-部署与运维/运行手册模板|运行手册模板]]
+- [[07-工作记录/工作记录模板|工作记录模板]]
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary)
+            home = vault / "首页.md"
+            custom = vault / "CONTEXT.md"
+            home.write_text(legacy_home, encoding="utf-8")
+            custom.write_text("user customization\n", encoding="utf-8")
+
+            touched, conflicts = XIAOH.sync_vault_runtime(vault)
+
+            self.assertIn("项目进度模板", home.read_text(encoding="utf-8"))
+            self.assertEqual("user customization\n", custom.read_text(encoding="utf-8"))
+            self.assertIn("CONTEXT.md", conflicts)
+            self.assertIn(home, touched)
+
+    def test_closeout_key_is_deterministic_and_revision_sensitive(self):
+        first = CLOSEOUT.build_closeout_key("codex_thread", "thread-1", "implementation", "rev-7")
+        rerun = CLOSEOUT.build_closeout_key("codex_thread", "thread-1", "implementation", "rev-7")
+        changed = CLOSEOUT.build_closeout_key("codex_thread", "thread-1", "implementation", "rev-8")
+
+        self.assertEqual(first["closeout_key"], rerun["closeout_key"])
+        self.assertNotEqual(first["closeout_key"], changed["closeout_key"])
+        with self.assertRaises(ValueError):
+            CLOSEOUT.build_closeout_key("codex_thread", "unknown", "implementation", "rev-7")
+
+    def test_codex_closeout_identity_uses_runtime_thread_and_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary) / "review.json"
+            moved = Path(temporary) / "archive" / "accepted-review.json"
+            evidence.write_text('{"accepted": true}\n', encoding="utf-8")
+            moved.parent.mkdir()
+            moved.write_text('{"accepted": true}\n', encoding="utf-8")
+            source = CLOSEOUT.resolve_source(
+                "codex_thread",
+                None,
+                {"CODEX_THREAD_ID": "thread-runtime"},
+            )
+            first = CLOSEOUT.evidence_revision([str(evidence)])
+            rerun = CLOSEOUT.evidence_revision([str(moved)])
+            evidence.write_text('{"accepted": true, "revision": 2}\n', encoding="utf-8")
+            changed = CLOSEOUT.evidence_revision([str(evidence)])
+
+        self.assertEqual("thread-runtime", source)
+        self.assertEqual("task-complete", CLOSEOUT.resolve_stage(None, True))
+        self.assertEqual(first, rerun)
+        self.assertNotEqual(first, changed)
+        with self.assertRaises(ValueError):
+            CLOSEOUT.resolve_source(
+                "codex_thread",
+                "invented",
+                {"CODEX_THREAD_ID": "thread-runtime"},
+            )
+
+    def test_doctor_rejects_old_enabled_plugin_even_after_runtime_update(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            codex = root / "codex"
+            vault = root / "vault"
+            config = root / "config.json"
+            target_agents, vault_files, _ = XIAOH.copy_runtime(codex, vault)
+            XIAOH.replace_placeholders(
+                [
+                    target_agents,
+                    codex / "agents",
+                    codex / "contexts",
+                    codex / "agent-system",
+                    codex / "hooks",
+                    *vault_files,
+                ],
+                [
+                    ("__CODEX_HOME__/AGENTS.md", target_agents.as_posix()),
+                    ("__CODEX_HOME__", codex.as_posix()),
+                    ("__OBSIDIAN_VAULT__", vault.as_posix()),
+                    ("__USER_HOME__", root.as_posix()),
+                ],
+            )
+            XIAOH.refresh_templates(codex)
+            XIAOH.atomic_write_json(
+                config,
+                XIAOH.merged_local_config(
+                    {},
+                    codex,
+                    vault,
+                    XIAOH.load_json(XIAOH.PLUGIN_MANIFEST)["version"],
+                ),
+            )
+            companions = {
+                "status": "complete",
+                "bundled_skills": [],
+                "plugins": [],
+                "external_capabilities": [],
+                "installed_now": [],
+                "warnings": [],
+                "errors": [],
+            }
+            with patch.object(XIAOH, "companion_report", return_value=companions), patch.object(
+                XIAOH,
+                "installed_xiaoh_plugin",
+                return_value=({"plugin_id": "xiaoh@xiaoh", "version": "2.6.0", "source": {}}, None),
+            ):
+                result = XIAOH.doctor(
+                    codex,
+                    vault,
+                    config,
+                    active_skill_root=Path(__file__).parents[1]
+                    / "plugins/xiaoh/skills/xiaoh-doctor",
+                )
+
+        self.assertEqual("failed", result["status"])
+        self.assertTrue(any("已启用插件版本漂移" in error for error in result["errors"]))
+
+    def test_closeout_and_push_responsibilities_are_separated(self):
+        closeout = (
+            Path(__file__).parents[1]
+            / "plugins/xiaoh/skills/xiaoh-task-closeout/SKILL.md"
+        ).read_text(encoding="utf-8")
+        progress = (
+            Path(__file__).parents[1]
+            / "plugins/xiaoh/skills/xiaoh-project-progress/SKILL.md"
+        ).read_text(encoding="utf-8")
+        daily = (
+            Path(__file__).parents[1]
+            / "plugins/xiaoh/skills/xiaoh-daily-progress/SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("before the root thread declares", closeout)
+        self.assertIn("工作记录/YYYY-MM-DD.md", closeout)
+        self.assertIn("07-工作记录/全局能力/YYYY-MM-DD.md", closeout)
+        self.assertIn("scripts/closeout_key.py", closeout)
+        self.assertIn("CODEX_THREAD_ID", closeout)
+        self.assertIn("项目进度.md", progress)
+        self.assertIn("does not perform task closeout", daily)
+        self.assertIn("do not reconstruct, summarize, or write", daily)
+
+    def test_project_progress_template_is_bundled(self):
+        template = (
+            Path(__file__).parents[1]
+            / "plugins/xiaoh/runtime/obsidian/development-vault/01-项目/项目进度模板.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("## 工作线总览", template)
+        self.assertIn("## 最近完成", template)
+        self.assertIn("## 阻塞与风险", template)
 
 
 if __name__ == "__main__":
