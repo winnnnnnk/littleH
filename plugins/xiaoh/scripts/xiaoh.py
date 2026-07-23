@@ -62,7 +62,7 @@ def load_json(path: Path, default: dict | None = None) -> dict:
 
 
 def file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def atomic_write_text(path: Path, text: str, backup: Path | None = None) -> None:

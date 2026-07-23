@@ -320,7 +320,7 @@ class CompanionTests(unittest.TestCase):
             vault = Path(temporary)
             home = vault / "首页.md"
             custom = vault / "CONTEXT.md"
-            home.write_text(legacy_home, encoding="utf-8")
+            home.write_bytes(legacy_home.replace("\n", "\r\n").encode("utf-8"))
             custom.write_text("user customization\n", encoding="utf-8")
 
             touched, conflicts = XIAOH.sync_vault_runtime(vault)
