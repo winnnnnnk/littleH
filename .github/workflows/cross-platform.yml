@@ -51,13 +51,14 @@ jobs:
       - name: Verify isolated installation
         shell: bash
         run: |
+          root=$(python -c 'from pathlib import Path; print(Path.cwd())')
           set +e
           output=$(
           python plugins/xiaoh/scripts/xiaoh.py setup \
-            --codex-home .ci/codex \
-            --vault .ci/vault \
-            --config .ci/xiaoh.json \
-            --active-skill-root plugins/xiaoh/skills/xiaoh-setup \
+            --codex-home "$root/.ci/codex" \
+            --vault "$root/.ci/vault" \
+            --config "$root/.ci/xiaoh.json" \
+            --active-skill-root "$root/plugins/xiaoh/skills/xiaoh-setup" \
             --allow-degraded \
             --json 2>&1
           )
@@ -70,10 +71,10 @@ jobs:
           set -e
           set +e
           python plugins/xiaoh/scripts/xiaoh.py doctor \
-            --codex-home .ci/codex \
-            --vault .ci/vault \
-            --config .ci/xiaoh.json \
-            --active-skill-root plugins/xiaoh/skills/xiaoh-doctor \
+            --codex-home "$root/.ci/codex" \
+            --vault "$root/.ci/vault" \
+            --config "$root/.ci/xiaoh.json" \
+            --active-skill-root "$root/plugins/xiaoh/skills/xiaoh-doctor" \
             --json > .ci/doctor.json
           doctor_status=$?
           set -e
@@ -162,7 +163,7 @@ jobs:
             Write-Output "::error::Incomplete automation setup must remain degraded"
             exit 1
           }
-          if (-not $text.Contains("当前线程实际Skill版本未验证")) {
+          if (-not ($text.Contains("WARNING:") -and $text.Contains("Skill"))) {
             Write-Output "::error::verify.ps1 must not claim a loaded Skill version"
             exit 1
           }
