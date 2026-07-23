@@ -1,8 +1,12 @@
 ---
+type: personal_system
+knowledge_scope: personal_system
+knowledge_state: formal
 status: active
 source_of_truth: __CODEX_HOME__/AGENTS.md + __CODEX_HOME__/agents
 last_validated: 2026-07-18
 tags:
+  - personal-system
   - agents
   - collaboration
   - governance

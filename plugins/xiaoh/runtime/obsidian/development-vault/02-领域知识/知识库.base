@@ -1,0 +1,89 @@
+filters:
+  and:
+    - file.ext == "md"
+    - is_template != true
+properties:
+  file.name:
+    displayName: 知识
+  project:
+    displayName: 项目
+  domain:
+    displayName: 领域
+  knowledge_scope:
+    displayName: 知识类型
+  knowledge_state:
+    displayName: 知识状态
+  applies_to:
+    displayName: 适用范围
+  owner:
+    displayName: 维护人
+  updated:
+    displayName: 更新时间
+views:
+  - type: table
+    name: 项目知识
+    filters:
+      and:
+        - knowledge_scope == "project"
+        - knowledge_state == "formal"
+    order:
+      - file.name
+      - project
+      - domain
+      - updated
+  - type: table
+    name: 领域知识
+    filters:
+      and:
+        - knowledge_scope == "domain"
+        - knowledge_state == "formal"
+    order:
+      - file.name
+      - domain
+      - applies_to
+      - updated
+  - type: table
+    name: 可复用方法
+    filters:
+      and:
+        - knowledge_scope == "reusable"
+        - knowledge_state == "formal"
+    order:
+      - file.name
+      - domain
+      - applies_to
+      - updated
+  - type: table
+    name: 个人系统
+    filters:
+      and:
+        - knowledge_scope == "personal_system"
+        - knowledge_state == "formal"
+    order:
+      - file.name
+      - domain
+      - updated
+  - type: table
+    name: 待晋升
+    filters:
+      and:
+        - type == "knowledge_candidate"
+        - knowledge_state == "candidate"
+    order:
+      - file.name
+      - suggested_scope
+      - domain
+      - next_action
+      - updated
+  - type: table
+    name: 最近更新
+    filters:
+      and:
+        - knowledge_state == "formal"
+        - updated >= today() - "30d"
+    order:
+      - file.name
+      - knowledge_scope
+      - domain
+      - updated
+    limit: 30

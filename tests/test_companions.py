@@ -22,6 +22,21 @@ CLOSEOUT_SPEC.loader.exec_module(CLOSEOUT)
 
 
 class CompanionTests(unittest.TestCase):
+    def test_release_version_and_bundled_skill_catalog_are_consistent(self):
+        root = Path(__file__).parents[1]
+        version = (root / "VERSION").read_text(encoding="utf-8").strip()
+        plugin = XIAOH.load_json(root / "plugins/xiaoh/.codex-plugin/plugin.json")
+        dependencies = XIAOH.load_json(root / "plugins/xiaoh/dependencies.json")
+        actual_skills = sorted(
+            path.name
+            for path in (root / "plugins/xiaoh/skills").iterdir()
+            if (path / "SKILL.md").is_file()
+        )
+
+        self.assertEqual(plugin["version"], version)
+        self.assertEqual(actual_skills, sorted(dependencies["bundled_skills"]))
+        self.assertIn("xiaoh-knowledge-promotion", actual_skills)
+
     def write_automation(self, codex, logical_id, task_id, **overrides):
         template = XIAOH.automation_templates()[logical_id]
         values = {
@@ -84,12 +99,13 @@ class CompanionTests(unittest.TestCase):
             root = Path(temporary)
             codex = root / "codex"
             vault = root / "vault"
-            ledger = vault / "04-架构与决策/Agent进化台账.md"
+            old_ledger = vault / "04-架构与决策/Agent进化台账.md"
+            ledger = vault / "90-个人系统/Agent进化台账.md"
             vault_agents = vault / "AGENTS.md"
             preferences = vault / "00-工作台/我的工作偏好.md"
-            ledger.parent.mkdir(parents=True)
+            old_ledger.parent.mkdir(parents=True)
             preferences.parent.mkdir(parents=True)
-            ledger.write_text("retained __CODEX_HOME__ knowledge\n", encoding="utf-8")
+            old_ledger.write_text("retained __CODEX_HOME__ knowledge\n", encoding="utf-8")
             vault_agents.write_text("stale managed rules\n", encoding="utf-8")
             preferences.write_text("my personal preferences\n", encoding="utf-8")
 
@@ -105,7 +121,7 @@ class CompanionTests(unittest.TestCase):
             self.assertIn("开发知识库规则", vault_agents.read_text(encoding="utf-8"))
             self.assertNotIn(
                 "__CODEX_HOME__",
-                (vault / "04-架构与决策/Agent协作角色.md").read_text(encoding="utf-8"),
+                (vault / "90-个人系统/Agent协作角色.md").read_text(encoding="utf-8"),
             )
 
     def test_local_config_adds_automation_bindings_without_losing_local_values(self):
@@ -329,9 +345,11 @@ class CompanionTests(unittest.TestCase):
 
             touched, conflicts = XIAOH.sync_vault_runtime(vault)
 
-            self.assertIn("我的开发工作台", home.read_text(encoding="utf-8"))
+            self.assertIn("我的研发系统", home.read_text(encoding="utf-8"))
             self.assertTrue((vault / "00-工作台/我的工作台.base").is_file())
             self.assertTrue((vault / "00-工作台/属性与状态说明.md").is_file())
+            self.assertTrue((vault / "知识库.md").is_file())
+            self.assertTrue((vault / "02-领域知识/知识库.base").is_file())
             self.assertEqual("user customization\n", custom.read_text(encoding="utf-8"))
             self.assertIn("CONTEXT.md", conflicts)
             self.assertIn(home, touched)
@@ -462,6 +480,7 @@ class CompanionTests(unittest.TestCase):
         )
         template = (vault / "01-项目/项目进度模板.md").read_text(encoding="utf-8")
         workbench = (vault / "00-工作台/我的工作台.base").read_text(encoding="utf-8")
+        knowledge_base = (vault / "02-领域知识/知识库.base").read_text(encoding="utf-8")
         manifest = XIAOH.managed_vault_files()
 
         self.assertIn("type: project_progress", template)
@@ -472,9 +491,45 @@ class CompanionTests(unittest.TestCase):
         self.assertIn("name: 今日重点", workbench)
         self.assertIn("name: 待我确认", workbench)
         self.assertIn("name: 知识候选", workbench)
+        self.assertIn("name: 项目知识", knowledge_base)
+        self.assertIn("name: 领域知识", knowledge_base)
+        self.assertIn("name: 可复用方法", knowledge_base)
+        self.assertIn("name: 个人系统", knowledge_base)
         self.assertIn("00-工作台/我的工作台.base", manifest)
+        self.assertIn("02-领域知识/知识库.base", manifest)
+        self.assertIn("03-可复用方法/复用卡模板.md", manifest)
         self.assertIn("00-工作台/属性与状态说明.md", manifest)
         self.assertNotIn("00-工作台/我的工作偏好.md", manifest)
+
+    def test_knowledge_promotion_has_four_exclusive_routes(self):
+        skill = (
+            Path(__file__).parents[1]
+            / "plugins/xiaoh/skills/xiaoh-knowledge-promotion/SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Select exactly one scope", skill)
+        for scope in ("`project`", "`domain`", "`reusable`", "`personal_system`"):
+            self.assertIn(scope, skill)
+        self.assertIn("A completion list is not knowledge", skill)
+
+    def test_vault_update_relocates_personal_system_pages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary)
+            old_role = vault / "04-架构与决策/Agent协作角色.md"
+            old_ledger = vault / "04-架构与决策/Agent进化台账.md"
+            old_role.parent.mkdir(parents=True)
+            old_role.write_text("legacy role\n", encoding="utf-8")
+            old_ledger.write_text("user evolution evidence\n", encoding="utf-8")
+
+            XIAOH.sync_vault_runtime(vault)
+
+            self.assertFalse(old_role.exists())
+            self.assertFalse(old_ledger.exists())
+            self.assertTrue((vault / "90-个人系统/Agent协作角色.md").is_file())
+            self.assertEqual(
+                "user evolution evidence\n",
+                (vault / "90-个人系统/Agent进化台账.md").read_text(encoding="utf-8"),
+            )
 
     def test_every_managed_vault_template_exists_and_has_valid_legacy_hashes(self):
         vault = XIAOH.RUNTIME / "obsidian/development-vault"

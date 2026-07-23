@@ -51,6 +51,8 @@ For `business_project`, use `$xiaoh-requirement-routing` after read-only fact di
 - Verify the requested outcome and state unverified areas.
 - Store raw evidence with the task, not in Obsidian.
 - Write only accepted, durable conclusions and decision reasons to the configured knowledge base.
+- Keep the work cockpit and knowledge base separate. Closeouts, daily records, project progress, and candidates are evidence or workflow state; they become formal knowledge only through `$xiaoh:xiaoh-knowledge-promotion`.
+- Route formal knowledge to exactly one scope: project knowledge, domain knowledge, reusable method, or personal system. Link derived knowledge back to its accepted evidence instead of copying raw logs.
 - After verifying an accepted task or meaningful milestone, run `$xiaoh:xiaoh-task-closeout` before declaring completion. It must write the result to the route for the current intent domain; only `business_project` closeouts refresh a project snapshot through `$xiaoh:xiaoh-project-progress`.
 - Treat `$xiaoh:xiaoh-daily-progress` only as a scheduled achievement push and missing-closeout report. Never defer task or project summarization to the daily automation.
 - Surface real improvement evidence as an Agent, contract, Skill, platform, project, or one-off candidate; never mutate permissions automatically.

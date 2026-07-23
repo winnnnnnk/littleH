@@ -12,8 +12,12 @@
         "12445dab3c5a6eb232e9595393e697353c61e1f1dae4f8c3a8604add3688ca12",
         "512ba78461a7c5ccfff073f888cfdac456c8ae43cef03d612c8ea6321adf3759",
         "95d6b64d6ccc7456859d20dc27e581ed23c6d0c02323d11d18bf2d742f6d45d9",
-        "8af404c028388d93d84faf97e824d6f5f12d4fa92ba2373cbae285973d15c6c6"
+        "8af404c028388d93d84faf97e824d6f5f12d4fa92ba2373cbae285973d15c6c6",
+        "6c45361b848e5d6e9e5ae808c0e94aca9dd8e73815c5eccd8cc62ac989b8440d"
       ]
+    },
+    "知识库.md": {
+      "legacy_hashes": []
     },
     "00-工作台/我的工作台.base": {
       "legacy_hashes": []
@@ -34,20 +38,37 @@
         "d1fac1f7d4a0854dbca1487946b5c2ec79782b1244b5b643e0cc9d783afd4d64"
       ]
     },
+    "01-项目/项目知识模板.md": {
+      "legacy_hashes": []
+    },
+    "02-领域知识/知识库.base": {
+      "legacy_hashes": []
+    },
     "02-领域知识/术语模板.md": {
       "legacy_hashes": [
-        "b7f20af4039a375f7871245c738fd363405218897bb4ff430e64e3057060fc1b"
+        "b7f20af4039a375f7871245c738fd363405218897bb4ff430e64e3057060fc1b",
+        "b2ec486b4ef246ee14264d4d4dadc87b2dca968202c89e9aef0f75ac235df553"
       ]
+    },
+    "02-领域知识/领域知识模板.md": {
+      "legacy_hashes": []
     },
     "02-领域知识/知识候选模板.md": {
       "legacy_hashes": [
-        "626f1f31951a54eaa09c448a7f816a835f98f6d3f4b3f431ecdb7c4a53730fd1"
+        "626f1f31951a54eaa09c448a7f816a835f98f6d3f4b3f431ecdb7c4a53730fd1",
+        "24f0b736faaaa1ad0e602c5144a6cf968ed055779fade67b251b6e20365a0192"
       ]
+    },
+    "02-领域知识/知识评审模板.md": {
+      "legacy_hashes": []
     },
     "03-需求与方案/方案模板.md": {
       "legacy_hashes": [
         "d2234ee3542ec5f310389cf558d3fa34b02a7c2e9d8d2dd532013d18a61acf83"
       ]
+    },
+    "03-可复用方法/复用卡模板.md": {
+      "legacy_hashes": []
     },
     "05-开发与测试/验证记录模板.md": {
       "legacy_hashes": [
@@ -65,6 +86,9 @@
         "a3792f38814a9b6f8c233a3e051b926e4e103cb10c51fda7cc057486a4f70c56",
         "26392dc7b0d1c473076a0902ab9bcd735766c50e8cbe0e270fe8622ab140e6c6"
       ]
+    },
+    "90-个人系统/个人系统说明.md": {
+      "legacy_hashes": []
     }
   }
 }

@@ -588,6 +588,17 @@ def sync_vault_runtime(vault: Path) -> tuple[list[Path], list[str]]:
     if not isinstance(previous_files, dict):
         previous_files = {}
     next_files: dict[str, str] = {}
+    for old_relative, new_relative in (
+        ("04-架构与决策/Agent协作角色.md", "90-个人系统/Agent协作角色.md"),
+        ("04-架构与决策/Agent进化台账.md", "90-个人系统/Agent进化台账.md"),
+    ):
+        old_path = vault / old_relative
+        new_path = vault / new_relative
+        if old_path.is_file() and not new_path.exists():
+            new_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(old_path, new_path)
+        elif old_path.is_file() and new_path.exists():
+            conflicts.append(old_relative)
     for source_path in source.rglob("*"):
         relative = source_path.relative_to(source).as_posix()
         destination = vault / relative
@@ -614,7 +625,7 @@ def sync_vault_runtime(vault: Path) -> tuple[list[Path], list[str]]:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, destination)
             touched.append(destination)
-    for relative in ("AGENTS.md", "04-架构与决策/Agent协作角色.md"):
+    for relative in ("AGENTS.md", "90-个人系统/Agent协作角色.md"):
         destination = vault / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / relative, destination)
@@ -756,8 +767,8 @@ def doctor(
         codex / "hooks/block_reserved_root_agent.py",
         codex / "hooks/block_reserved_root_agent.ps1",
         codex / "hooks/guard_vault_writes.py",
-        vault / "04-架构与决策/Agent协作角色.md",
-        vault / "04-架构与决策/Agent进化台账.md",
+        vault / "90-个人系统/Agent协作角色.md",
+        vault / "90-个人系统/Agent进化台账.md",
     ):
         if not required.exists():
             errors.append(f"缺少文件: {required}")

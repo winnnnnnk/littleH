@@ -1,3 +1,17 @@
+---
+type: personal_system
+knowledge_scope: personal_system
+knowledge_state: formal
+domain: agent-governance
+status: accepted
+health: normal
+owner: xiaoh
+updated:
+tags:
+  - personal-system
+  - agent-evolution
+---
+
 # Agent 进化台账
 
 本页只记录经过复核的通用 Agent 配置改进。项目特例不直接升级为全局规则。

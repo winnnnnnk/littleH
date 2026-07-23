@@ -25,7 +25,8 @@ Treat this as a `global_agent_capability` operation. It reviews accepted daily r
    - risks, uncertainty, and validation needed.
 7. Write or update `02-领域知识/知识候选/YYYY-Www-知识评审.md` using archive key `xiaoh-weekly:<ISO-week>` and `type: knowledge_review`. A rerun updates the same candidate IDs and must not duplicate them.
 8. When a matching workbench projection exists at `02-领域知识/知识候选/<candidate_id>.md`, update only its review metadata and next action; keep `status: candidate` until an interactive XiaoH review accepts promotion or rejection. Never create authority by changing the projection alone.
-9. Do not automatically overwrite formal knowledge, ADRs, Skills, Agent roles, or global contracts. List promotion recommendations for an interactive XiaoH review.
-10. Report the configured Vault root, exact written files, candidate counts by classification, conflicts, skipped candidates, and recommended promotions. Report `无新增` when no candidate exists.
+9. Recommend exactly one target scope for each reusable candidate: `project`, `domain`, `reusable`, or `personal_system`. Do not treat a project example as a cross-project rule without separating invariant behavior from project parameters and exclusions.
+10. Do not automatically overwrite formal knowledge, ADRs, Skills, Agent roles, or global contracts. List promotion recommendations for an interactive XiaoH review using `$xiaoh:xiaoh-knowledge-promotion`.
+11. Report the configured Vault root, exact written files, candidate counts by classification, conflicts, skipped candidates, and recommended promotions. Report `无新增` when no candidate exists.
 
 Stop rather than generalize a project-specific value, customer convention, fixed default, security decision, or PKI behavior without independent evidence.

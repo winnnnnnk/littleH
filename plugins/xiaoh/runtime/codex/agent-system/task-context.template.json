@@ -22,7 +22,7 @@
     "allowed_paths": [
       "__CODEX_HOME__/AGENTS.md",
       "__CODEX_HOME__/agents",
-      "__OBSIDIAN_VAULT__/04-架构与决策/Agent协作角色.md"
+      "__OBSIDIAN_VAULT__/90-个人系统/Agent协作角色.md"
     ],
     "prohibited_actions": [
       "修改角色权限",
