@@ -167,3 +167,4 @@ jobs:
             Write-Output "::error::verify.ps1 must not claim a loaded Skill version"
             exit 1
           }
+          exit 0
