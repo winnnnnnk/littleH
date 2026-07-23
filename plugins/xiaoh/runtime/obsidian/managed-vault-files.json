@@ -10,18 +10,60 @@
     "首页.md": {
       "legacy_hashes": [
         "12445dab3c5a6eb232e9595393e697353c61e1f1dae4f8c3a8604add3688ca12",
-        "512ba78461a7c5ccfff073f888cfdac456c8ae43cef03d612c8ea6321adf3759"
+        "512ba78461a7c5ccfff073f888cfdac456c8ae43cef03d612c8ea6321adf3759",
+        "95d6b64d6ccc7456859d20dc27e581ed23c6d0c02323d11d18bf2d742f6d45d9",
+        "8af404c028388d93d84faf97e824d6f5f12d4fa92ba2373cbae285973d15c6c6"
+      ]
+    },
+    "00-工作台/我的工作台.base": {
+      "legacy_hashes": []
+    },
+    "00-工作台/属性与状态说明.md": {
+      "legacy_hashes": [
+        "54e7b530f1156dbfdc6321a2f354a7de952a7178896acae7c705b54fdc541663"
       ]
     },
     "01-项目/项目模板.md": {
       "legacy_hashes": [
-        "9bf80f81f5507a8cc69a01367d259a89b668656f97f70cb4d81255e7ae059308"
+        "9bf80f81f5507a8cc69a01367d259a89b668656f97f70cb4d81255e7ae059308",
+        "38ca87f5d53c039fb5928c54f6685f71241cef44706071d4eb9c2ebb7fdf903f"
+      ]
+    },
+    "01-项目/项目进度模板.md": {
+      "legacy_hashes": [
+        "d1fac1f7d4a0854dbca1487946b5c2ec79782b1244b5b643e0cc9d783afd4d64"
+      ]
+    },
+    "02-领域知识/术语模板.md": {
+      "legacy_hashes": [
+        "b7f20af4039a375f7871245c738fd363405218897bb4ff430e64e3057060fc1b"
+      ]
+    },
+    "02-领域知识/知识候选模板.md": {
+      "legacy_hashes": [
+        "626f1f31951a54eaa09c448a7f816a835f98f6d3f4b3f431ecdb7c4a53730fd1"
+      ]
+    },
+    "03-需求与方案/方案模板.md": {
+      "legacy_hashes": [
+        "d2234ee3542ec5f310389cf558d3fa34b02a7c2e9d8d2dd532013d18a61acf83"
+      ]
+    },
+    "05-开发与测试/验证记录模板.md": {
+      "legacy_hashes": [
+        "58c5713acd1dc68c5edb92aeb2072c199bf88b25c60a4cb67e6cd77a4410a352"
+      ]
+    },
+    "06-部署与运维/运行手册模板.md": {
+      "legacy_hashes": [
+        "49f8348ee5fdfe6c80f7413385e7ef5c938d7fb0a2ae919a44f60787a9af8054"
       ]
     },
     "07-工作记录/工作记录模板.md": {
       "legacy_hashes": [
         "832c8a22b8deee71fe7a6c31104267b1c1c754dbe7b86972b7a7d4d33b068c64",
-        "a3792f38814a9b6f8c233a3e051b926e4e103cb10c51fda7cc057486a4f70c56"
+        "a3792f38814a9b6f8c233a3e051b926e4e103cb10c51fda7cc057486a4f70c56",
+        "26392dc7b0d1c473076a0902ab9bcd735766c50e8cbe0e270fe8622ab140e6c6"
       ]
     }
   }

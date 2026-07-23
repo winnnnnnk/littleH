@@ -20,15 +20,15 @@ Treat this as part of the current task, not as a scheduled recap. Run it after o
    - stage: use the authoritative Playbook stage or milestone ID; for the final result of an ordinary Codex task use `--final`, which resolves to `task-complete`; a partial milestone may use `--stage-id` only when that ID already exists in the current Goal, task context, or accepted artifact;
    - revision: use the accepted Playbook/artifact revision when supplied by that system. An ordinary Codex task must pass one or more accepted task-context, review, diff, or verification evidence files with `--evidence-path`; the script computes their content revision and rejects a caller-provided revision.
    Do not write when the runtime thread ID, stable stage, or accepted evidence is unavailable.
-6. Upsert the routed daily record immediately. Add or update one result entry using the generated key with:
+6. Upsert the routed daily record immediately. Ensure the file uses the shared Vault properties with `type: work_record`, the routed `project` or `domain`, `status: accepted`, `health`, `owner: xiaoh`, `date`, and `updated`. Add or update one result entry using the generated key with:
    - completed target or milestone;
    - accepted result and actual changes;
    - key decisions and reasons;
    - verification and evidence paths;
    - risks, blockers, remaining work, and next owner;
    - reusable-knowledge candidates.
-7. Give each candidate a stable ID, source task, evidence path, applicability, exclusions, parameters, uncertainty, and status `candidate`. Do not promote it to formal knowledge.
-8. For `business_project`, update a clearly identified requirement/task knowledge page when appropriate, then run `$xiaoh:xiaoh-project-progress`. If that Skill is unavailable, report the incomplete project snapshot update. Global capability and platform records do not invoke project progress.
-9. Report the configured Vault root, exact written files, closeout key and its identity components, evidence basis, unresolved ownership, and any skipped update.
+7. Give each candidate a stable ID, source task, evidence path, applicability, exclusions, parameters, uncertainty, and status `candidate`. Also upsert its workbench projection at `02-领域知识/知识候选/<candidate_id>.md` with `type: knowledge_candidate`, `status: candidate`, `owner: xiaoh`, `next_action`, `updated`, and a link to the source daily record. The daily record remains authoritative; the projection is only a discoverable index. Do not promote it to formal knowledge.
+8. For `business_project`, update a clearly identified requirement/task knowledge page when appropriate and normalize only its workbench properties (`type`, `project`, `domain`, `status`, `health`, `owner`, `needs_user_decision`, `focus`, `next_action`, `updated`, and `legacy_status` when migrating an old state) without changing its evidence-backed business conclusions. Then run `$xiaoh:xiaoh-project-progress`. If that Skill is unavailable, report the incomplete project snapshot update. Global capability and platform records do not invoke project progress.
+9. Report the configured Vault root, exact written files including candidate projections, closeout key and its identity components, evidence basis, unresolved ownership, and any skipped update.
 
 A rerun must update the same closeout key without duplicating the result. A failed or partial write is not a completed closeout.

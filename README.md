@@ -15,7 +15,7 @@
 | macOS | `install.sh` | Python、JSON、隔离安装、Hook自检 |
 | Windows | `install-windows.cmd`或`install.ps1` | Python、JSON、隔离安装、PowerShell Hook自检 |
 
-两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看开发知识库时安装，不是小H初始化的硬依赖。小H自己的13个Skill随插件发布；配套Codex插件由初始化程序根据机器可读清单自动安装。
+两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看开发知识库时安装，不是小H初始化的硬依赖；使用原生Bases工作台建议Obsidian 1.9或更高版本。小H自己的13个Skill随插件发布；配套Codex插件由初始化程序根据机器可读清单自动安装。
 
 ## 从GitHub安装
 
@@ -94,6 +94,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 - `xiaoh-update`：备份后同步当前插件版本，保留本地路径和知识。
 - `xiaoh-task-closeout`：任务或稳定阶段完成后立即按意图域写入当日记录；业务项目刷新项目进度，全局能力和Playbook平台使用各自记录，不等待定时任务。
 - `xiaoh-project-progress`：根据已收口结果刷新项目当前阶段、工作线、阻塞、风险和下一里程碑。
+- Obsidian个人工作台：使用原生Bases从统一属性生成今日重点、待确认、当前项目、进行中任务、最近成果和知识候选；个人偏好与项目总览只初始化一次，不在插件更新时覆盖。
 - `xiaoh-daily-progress`：定时推送已经即时收口的每日成果，并报告缺少收口键的已完成任务，不补写项目总结。
 - `xiaoh-knowledge-review`：每周只评审每日记录中的知识候选，不自动覆盖正式知识。
 - 托管任务只通过Codex支持的定时任务能力创建或更新；小H不直接修改内部automation TOML。每日任务由小H管理为启用，每周任务管理为暂停；绑定和Doctor都会读取实际任务文件核对名称、提示词和状态，能力不可用或运行态漂移时报告`degraded`，不影响小H核心能力。

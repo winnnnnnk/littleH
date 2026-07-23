@@ -1,0 +1,111 @@
+filters:
+  and:
+    - file.ext == "md"
+    - is_template != true
+properties:
+  file.name:
+    displayName: 事项
+  project:
+    displayName: 项目
+  status:
+    displayName: 阶段
+  health:
+    displayName: 健康
+  owner:
+    displayName: 下一责任人
+  priority:
+    displayName: 优先级
+  next_action:
+    displayName: 下一动作
+  updated:
+    displayName: 更新时间
+  needs_user_decision:
+    displayName: 需要我确认
+views:
+  - type: table
+    name: 今日重点
+    filters:
+      and:
+        - focus == true
+        - status != "accepted"
+        - status != "archived"
+    order:
+      - file.name
+      - project
+      - priority
+      - status
+      - health
+      - owner
+      - next_action
+      - updated
+    limit: 5
+  - type: table
+    name: 待我确认
+    filters:
+      and:
+        - needs_user_decision == true
+        - status != "accepted"
+        - status != "archived"
+    order:
+      - file.name
+      - project
+      - next_action
+      - owner
+      - updated
+  - type: table
+    name: 当前项目
+    filters:
+      and:
+        - type == "project"
+        - status != "archived"
+    order:
+      - file.name
+      - status
+      - health
+      - next_action
+      - updated
+  - type: table
+    name: 进行中的任务
+    filters:
+      and:
+        - type == "task"
+        - or:
+            - status == "clarifying"
+            - status == "ready"
+            - status == "in_progress"
+            - status == "blocked"
+    order:
+      - file.name
+      - project
+      - status
+      - health
+      - owner
+      - next_action
+      - updated
+  - type: table
+    name: 最近完成
+    filters:
+      and:
+        - status == "accepted"
+        - or:
+            - type == "task"
+            - type == "troubleshooting"
+            - type == "work_record"
+        - updated >= today() - "7d"
+    order:
+      - file.name
+      - project
+      - type
+      - updated
+    limit: 20
+  - type: table
+    name: 知识候选
+    filters:
+      and:
+        - type == "knowledge_candidate"
+        - status == "candidate"
+    order:
+      - file.name
+      - domain
+      - source_task
+      - updated

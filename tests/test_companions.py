@@ -86,9 +86,12 @@ class CompanionTests(unittest.TestCase):
             vault = root / "vault"
             ledger = vault / "04-架构与决策/Agent进化台账.md"
             vault_agents = vault / "AGENTS.md"
+            preferences = vault / "00-工作台/我的工作偏好.md"
             ledger.parent.mkdir(parents=True)
+            preferences.parent.mkdir(parents=True)
             ledger.write_text("retained __CODEX_HOME__ knowledge\n", encoding="utf-8")
             vault_agents.write_text("stale managed rules\n", encoding="utf-8")
+            preferences.write_text("my personal preferences\n", encoding="utf-8")
 
             target_agents, vault_files, conflicts = XIAOH.copy_runtime(codex, vault)
             XIAOH.replace_placeholders(
@@ -98,6 +101,7 @@ class CompanionTests(unittest.TestCase):
 
             self.assertFalse(conflicts)
             self.assertEqual("retained __CODEX_HOME__ knowledge\n", ledger.read_text(encoding="utf-8"))
+            self.assertEqual("my personal preferences\n", preferences.read_text(encoding="utf-8"))
             self.assertIn("开发知识库规则", vault_agents.read_text(encoding="utf-8"))
             self.assertNotIn(
                 "__CODEX_HOME__",
@@ -325,7 +329,9 @@ class CompanionTests(unittest.TestCase):
 
             touched, conflicts = XIAOH.sync_vault_runtime(vault)
 
-            self.assertIn("项目进度模板", home.read_text(encoding="utf-8"))
+            self.assertIn("我的开发工作台", home.read_text(encoding="utf-8"))
+            self.assertTrue((vault / "00-工作台/我的工作台.base").is_file())
+            self.assertTrue((vault / "00-工作台/属性与状态说明.md").is_file())
             self.assertEqual("user customization\n", custom.read_text(encoding="utf-8"))
             self.assertIn("CONTEXT.md", conflicts)
             self.assertIn(home, touched)
@@ -450,14 +456,33 @@ class CompanionTests(unittest.TestCase):
         self.assertIn("do not reconstruct, summarize, or write", daily)
 
     def test_project_progress_template_is_bundled(self):
-        template = (
+        vault = (
             Path(__file__).parents[1]
-            / "plugins/xiaoh/runtime/obsidian/development-vault/01-项目/项目进度模板.md"
-        ).read_text(encoding="utf-8")
+            / "plugins/xiaoh/runtime/obsidian/development-vault"
+        )
+        template = (vault / "01-项目/项目进度模板.md").read_text(encoding="utf-8")
+        workbench = (vault / "00-工作台/我的工作台.base").read_text(encoding="utf-8")
+        manifest = XIAOH.managed_vault_files()
 
+        self.assertIn("type: project_progress", template)
+        self.assertIn("is_template: true", template)
         self.assertIn("## 工作线总览", template)
         self.assertIn("## 最近完成", template)
         self.assertIn("## 阻塞与风险", template)
+        self.assertIn("name: 今日重点", workbench)
+        self.assertIn("name: 待我确认", workbench)
+        self.assertIn("name: 知识候选", workbench)
+        self.assertIn("00-工作台/我的工作台.base", manifest)
+        self.assertIn("00-工作台/属性与状态说明.md", manifest)
+        self.assertNotIn("00-工作台/我的工作偏好.md", manifest)
+
+    def test_every_managed_vault_template_exists_and_has_valid_legacy_hashes(self):
+        vault = XIAOH.RUNTIME / "obsidian/development-vault"
+
+        for relative, metadata in XIAOH.managed_vault_files().items():
+            self.assertTrue((vault / relative).is_file(), relative)
+            for digest in metadata.get("legacy_hashes", []):
+                self.assertRegex(digest, r"^[0-9a-f]{64}$", relative)
 
 
 if __name__ == "__main__":
