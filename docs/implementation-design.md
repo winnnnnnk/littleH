@@ -171,162 +171,9 @@ flowchart TB
 
 意图域防止“检查小H能力时顺手修改业务代码”或“修Playbook时把下游业务任务当平台实现”。跨域必须说明变化和影响，并取得明确授权。
 
-## 7. 小H与Playbook的关系
+## 7. Workspace项目归属
 
-小H与Playbook是上下协作关系，不是同一个组件，也不是互相替代：
-
-- 小H是面向用户的根线程协调层，负责理解目标、核对事实、推荐方案、需求裁决、专业Agent路由、结果验收和长期知识写回。
-- Playbook是面向研发执行的治理平台，负责Workspace、成员仓库、任务状态、OpenSpec、worktree、Git、门禁、验证、Issue/MR和交付闭环。
-
-可以简化为：
-
-```text
-用户目标
-  ↓
-小H：理解、分析、推荐、需求基线和用户决策
-  ↓
-Playbook：把已确认范围变成受管Workspace任务和可检查执行状态
-  ↓
-专业Agent：在指定member worktree和worker contract内探索、实现或评审
-  ↓
-Playbook：验证、提交、远端协作、合并和任务闭环
-  ↓
-小H：验收业务结果、即时收口、刷新项目进度、沉淀长期知识
-```
-
-### 7.1 职责对比
-
-| 维度 | 小H | Playbook |
-| --- | --- | --- |
-| 面向对象 | 用户及当前根对话 | 项目Workspace、仓库和交付流程 |
-| 核心目标 | 把用户意图转成正确、可确认、可持续推进的目标 | 把研发规则和交付状态变成可执行、可验证的门禁 |
-| 需求职责 | 事实探索、需求工件路由、Spec+RFC、业务基线和用户确认 | 保存并执行仓库级OpenSpec、task和gate状态 |
-| Agent职责 | 选择最小专业角色集合，综合不同角色结论 | 决定受管worker、member、worktree、依赖顺序和执行阶段 |
-| 写入边界 | 全局能力、项目稳定知识和Obsidian收口 | 业务仓库、任务worktree、OpenSpec、Git和远端协作状态 |
-| 状态事实源 | 当前用户决定、需求基线、验收结论 | Workspace metadata、task state、worker brief、Git/OpenSpec/gate状态 |
-| 验证职责 | 判断结果是否满足业务目标，组织独立专业评审 | 执行或校验仓库级测试、pipeline、提交、MR和合并门禁 |
-| 长期记忆 | 将验收后的稳定结论写入配置Vault | 将原始执行证据保存在任务、仓库和受管evidence中 |
-| 外部动作 | 判断是否需要用户授权，不绕过人工边界 | 通过受管命令执行Issue、MR、review、merge、archive和cleanup |
-
-### 7.2 谁拥有哪种决定
-
-| 决定或事实 | 责任主体 |
-| --- | --- |
-| 业务目标和结果取舍 | 用户 |
-| 推荐方案、影响解释和待确认问题 | 小H |
-| 业务规则是否已经确认 | 用户确认 + 小H基线记录 |
-| 当前代码实际行为 | 代码、配置、数据和运行证据 |
-| Workspace包含哪些member及其依赖 | `playbook-workspace.yaml`和Playbook Workspace状态 |
-| 哪个member worktree允许写入 | Playbook task/worker返回 |
-| 当前OpenSpec、Git flow和gate状态 | Playbook受管状态 |
-| 某专业Agent是否适合参与 | 小H角色路由 |
-| 专业Agent本轮能做什么 | 小H任务上下文与Playbook worker contract的权限交集 |
-| 实现是否达到业务目标 | 小H综合用户验收、测试和评审证据 |
-| 是否可以提交、推送、建MR或合并 | Playbook门禁 + 必要的人工授权 |
-| 哪些结论进入长期知识 | 小H知识评审和晋升流程 |
-
-小H不能用Obsidian或自己的任务摘要改写Playbook执行状态；Playbook也不能用“当前代码已经这样实现”替用户决定目标行为。
-
-### 7.3 从小H到Playbook的交接
-
-复杂业务需求的标准交接点位于“用户确认总体Spec+RFC”之后：
-
-```mermaid
-sequenceDiagram
-    participant U as 用户
-    participant H as 小H
-    participant P as Playbook
-    participant A as 专业Agent
-
-    U->>H: 描述目标、现象或业务问题
-    H->>H: Workspace归属、事实探索、需求工件路由
-    H->>H: 形成Spec+RFC并完成源工件评审
-    H->>U: 提交推荐基线和业务结果
-    U-->>H: 确认或调整
-    H->>H: 更新业务需求与设计基线
-    H->>P: 确认member范围并创建Workspace task
-    P-->>H: task state、member、worker contract、worktree
-    H->>P: 从已确认总体基线逐仓派生OpenSpec
-    H->>H: OpenSpec一致性评审
-    H->>U: 确认OpenSpec
-    U-->>H: 允许进入实现
-    H->>P: 启动受管任务
-    P->>A: 下发指定member worktree和阶段简报
-    A-->>P: 实现、验证、评审和handoff证据
-    P-->>H: 当前任务和交付状态
-    H->>U: 汇总业务结果和真实阻塞
-    H->>H: 即时收口、项目进度和知识候选
-```
-
-在`spec_rfc_then_openspec`路线下，Spec+RFC确认前，小H只做只读探索和候选影响面分析，不最终确认member、不创建业务任务、不启动实现。
-
-### 7.4 Agent同时遵守两套上下文
-
-专业Agent进入Playbook任务后，同时受以下约束：
-
-1. 小H公共契约和角色TOML：规定角色能力、Sandbox、证据格式和全局禁止事项。
-2. 小Hschema 1.4任务上下文：规定本轮目标、事实源、意图域、允许范围、验收和停止条件。
-3. Workspace和仓库`AGENTS.md`：规定项目及仓库专属规则。
-4. Playbook worker/task brief：规定实际member、worktree、allowed scope、依赖、当前阶段和输出契约。
-5. 当前OpenSpec与Git/gate状态：规定要实现和验证的准确范围。
-
-这些约束不是覆盖关系，而是取交集。任一层更严格时使用更严格边界；发生冲突时停止副作用，由小H重新对账，不能由专业Agent自行扩大权限。
-
-Playbook已经返回worker/task简报时，它是执行状态的权威事实源。小H任务上下文只补充角色、长期知识路径、输出要求和停止条件，不能复制或覆盖受管状态。
-
-### 7.5 两套“收口”不是一回事
-
-Playbook收口与小H收口解决不同问题：
-
-| 收口 | 证明什么 | 主要产物 |
-| --- | --- | --- |
-| Playbook任务闭环 | 仓库任务是否完成了OpenSpec、实现、验证、提交、MR、合并和回收门禁 | task state、Git、MR、pipeline、audit和evidence |
-| 小H即时收口 | 当前已验收结果为什么成立、对项目有什么影响、后续如何召回和复用 | 当日记录、项目进度、需求基线引用和知识候选 |
-
-小H不能因为写完Obsidian记录就把Playbook任务标成完成；Playbook任务完成后，小H也不能等待每日定时任务才补项目总结。
-
-### 7.6 三种使用场景
-
-#### 业务项目开发
-
-- 意图域：`business_project`。
-- 小H先处理项目归属、需求和业务确认。
-- Playbook负责受管Workspace和实际交付生命周期。
-- 业务代码只在Playbook返回的task worktree中修改。
-
-#### 修改Playbook产品本身
-
-- 意图域：`playbook_platform`。
-- Playbook源码仓库及其自身OpenSpec是实施事实源。
-- 不能借某个下游业务Workspace承载平台修复。
-- 收口写入Vault的`07-工作记录/平台`，不伪造业务项目进度。
-
-#### 修改小H、Agent或Skill
-
-- 意图域：`global_agent_capability`。
-- 不创建业务Playbook task，也不修改业务仓库。
-- 在小H源码仓库完成实现、验证和发布。
-- 收口写入Vault的`07-工作记录/全局能力`。
-
-### 7.7 不能绕过Playbook的情况
-
-对已由Playbook管理的业务项目，以下动作必须走受管入口：
-
-- 创建和启动编程任务。
-- 创建member task worktree。
-- 确认当前active change和OpenSpec状态。
-- 运行受管验证和交付gate。
-- 提交代码。
-- 创建或更新Issue/MR。
-- AI review、人工Approve、merge、finalize、archive、cleanup和任务closeout。
-
-小H可以决定“为什么做、目标是什么、采用什么已确认方案、需要哪些专业判断”，但不能用普通Git命令、Obsidian记录或自然语言承诺替代上述Playbook状态。
-
-只读咨询、需求分析和全局小H能力修改不因为本机安装了Playbook就自动变成业务任务。是否进入Playbook生命周期由意图域、项目是否受管和当前动作共同决定。
-
-## 8. Workspace项目归属
-
-### 8.1 为什么需要Workspace路由
+### 7.1 为什么需要Workspace路由
 
 同一个项目可以包含多个Workspace，一个Workspace也可能在另一台电脑拥有不同绝对路径。仅靠目录名或当前打开的Obsidian页面无法可靠判断项目。
 
@@ -353,7 +200,7 @@ Playbook收口与小H收口解决不同问题：
 }
 ```
 
-### 8.2 解析状态
+### 7.2 解析状态
 
 - `known`：直接复用登记的项目和系统，不再次询问。
 - `unknown`：先只读核对仓库和项目导航，由小H给出推荐，只询问一次。
@@ -361,9 +208,9 @@ Playbook收口与小H收口解决不同问题：
 
 机器可读事实源始终是`~/.xiaoh/config.json`；Obsidian只做可读导航。
 
-## 9. 需求与实现生命周期
+## 8. 需求与实现生命周期
 
-### 9.1 需求工件路由
+### 8.1 需求工件路由
 
 业务需求完成只读事实探索后，由`xiaoh-requirement-routing`选择唯一工件路线：
 
@@ -373,7 +220,7 @@ Playbook收口与小H收口解决不同问题：
 | `spec_rfc_then_openspec` | 跨仓、迁移、兼容、事务、安全、PKI、架构或多方案取舍 |
 | `class_skill` | 已有A/B/C类正式文档Skill负责该类工件 |
 
-### 9.2 标准复杂需求流程
+### 8.2 标准复杂需求流程
 
 ```mermaid
 flowchart LR
@@ -403,7 +250,7 @@ Spec+RFC修订号变化后，旧评审失效。OpenSpec必须形成：
 
 `FR/NFR → Requirement/Scenario → tasks.md → 实现 → 验证证据`
 
-### 9.3 业务需求与设计基线
+### 8.3 业务需求与设计基线
 
 用户确认、纠正、拒绝或取代重要业务规则后，`xiaoh-requirement-baseline`立即维护一项业务主题的一份规范页面。
 
@@ -418,7 +265,7 @@ Spec+RFC修订号变化后，旧评审失效。OpenSpec必须形成：
 
 基线用于稳定召回，不替代仓库中的Spec+RFC和OpenSpec。
 
-## 10. 专业Agent体系
+## 9. 专业Agent体系
 
 小H只作为根线程协调者存在，仓库明确删除或拒绝`agents/xiaoh.toml`。
 
@@ -452,9 +299,9 @@ interrupt_message = true
 
 `max_depth = 1`用于禁止专业Agent继续形成不可控的多层委派树。
 
-## 11. 正式委派门禁
+## 10. 正式委派门禁
 
-### 11.1 任务上下文
+### 10.1 任务上下文
 
 正式任务使用schema 1.4 JSON，至少记录：
 
@@ -470,7 +317,7 @@ interrupt_message = true
 
 任务上下文使用SHA-256绑定具体文件修订。
 
-### 11.2 当前协作工具的委派时序
+### 10.2 当前协作工具的委派时序
 
 ```mermaid
 sequenceDiagram
@@ -505,7 +352,7 @@ sequenceDiagram
 - 意图和回执不可重放；目标文件使用独占创建防止证据覆盖。
 - 任一环节异常时，该子Agent只能作为只读咨询，不能形成正式角色证据。
 
-### 11.3 成功收口证据
+### 10.3 成功收口证据
 
 正式高风险任务成功需要：
 
@@ -519,7 +366,7 @@ sequenceDiagram
 
 等待Agent、阶段进展或旧修订记录都不能替代当前修订的成功证据。
 
-## 12. Vault写入门禁
+## 11. Vault写入门禁
 
 小H只允许向`~/.xiaoh/config.json`中`obsidian_vault`指定的唯一Vault写入。
 
@@ -534,11 +381,11 @@ sequenceDiagram
 
 Hook无法安全判断时失败关闭。发现历史误写风险时只报告来源、目标和恢复条件，不自动删除或移动其他Vault中的内容。
 
-## 13. Obsidian信息架构
+## 12. Obsidian信息架构
 
 小H把“现在做什么”和“以后复用什么”分成两个入口。
 
-### 13.1 发布的空白Vault结构
+### 12.1 发布的空白Vault结构
 
 插件发布的是不含业务内容的研发系统骨架：
 
@@ -585,7 +432,7 @@ development-vault/
 
 安装器只部署骨架和模板，不把示例客户或示例项目写入Vault。受管文件及历史模板哈希记录在`managed-vault-files.json`中。
 
-### 13.2 业务项目实例结构
+### 12.2 业务项目实例结构
 
 用户确认一个新Workspace的项目和系统归属后，小H在`01-项目`下维护项目实例。推荐结构为：
 
@@ -611,7 +458,7 @@ development-vault/
 
 一个项目可以包含多个Workspace和多个系统；一个Workspace只能归属一个项目和一个系统。Workspace映射保存在本地配置，项目页只保存可读导航。
 
-### 13.3 页面职责与唯一事实源
+### 12.3 页面职责与唯一事实源
 
 | 页面或记录 | 保存内容 | 不保存什么 | 更新方式 |
 | --- | --- | --- | --- |
@@ -635,7 +482,7 @@ development-vault/
 - 每日记录中的知识候选是来源事实；候选页面只是工作台投影。
 - 仓库Spec、OpenSpec、代码和验证证据仍是实施事实源，Vault不接管它们。
 
-### 13.4 写入触发时机与频率
+### 12.4 写入触发时机与频率
 
 | 事件 | 立即写入 | 定时处理 |
 | --- | --- | --- |
@@ -650,7 +497,7 @@ development-vault/
 
 因此，定时任务不是资料归档器。业务基线、任务总结和项目进度都在事件发生时更新；每日任务只负责把已经形成的成果推送给用户。
 
-### 13.5 Frontmatter与状态模型
+### 12.5 Frontmatter与状态模型
 
 工作台和Bases依赖统一Frontmatter：
 
@@ -682,7 +529,7 @@ development-vault/
 
 健康状态独立使用`normal`、`at_risk`和`blocked`。历史非标准状态保存在`legacy_status`，归一化属性时不改写业务结论。
 
-### 13.6 幂等与历史保留
+### 12.6 幂等与历史保留
 
 为避免重复记录和静默覆盖，小H使用不同稳定键：
 
@@ -697,7 +544,7 @@ development-vault/
 
 相同身份的重跑执行更新而不是追加副本。语义变化时创建新修订或新确认点并保留旧记录；状态由`confirmed`变更时必须使用取代关系，不能直接删除历史。
 
-### 13.7 新项目的落库过程
+### 12.7 新项目的落库过程
 
 ```mermaid
 flowchart LR
@@ -712,7 +559,7 @@ flowchart LR
 
 换电脑时复用`workspace_id`和项目/系统身份，只重新绑定新电脑的本地路径，不复制旧电脑绝对路径作为有效状态。
 
-### 13.8 工作台
+### 12.8 工作台
 
 工作台保存执行状态：
 
@@ -727,7 +574,7 @@ flowchart LR
 
 项目进度是当前快照，每日工作记录是时间序列，两者不能互相替代。
 
-### 13.9 知识库
+### 12.9 知识库
 
 知识库只保存长期成立的结论：
 
@@ -742,9 +589,9 @@ flowchart LR
 
 业务规则不复制到多个页面。正式知识只引用规范需求基线和稳定确认点ID，避免出现相互竞争的事实源。
 
-## 14. 任务收口、项目进度与定时任务
+## 13. 任务收口、项目进度与定时任务
 
-### 14.1 即时收口
+### 13.1 即时收口
 
 任务或稳定里程碑通过验证后，`xiaoh-task-closeout`在根线程结束前立即执行：
 
@@ -763,7 +610,7 @@ flowchart LR
 | 小H全局能力 | `07-工作记录/全局能力/YYYY-MM-DD.md` |
 | Playbook平台 | `07-工作记录/平台/YYYY-MM-DD.md` |
 
-### 14.2 每日成果推送
+### 13.2 每日成果推送
 
 每日托管任务只读取前一自然日已经即时收口的记录：
 
@@ -774,7 +621,7 @@ flowchart LR
 
 默认状态：`ACTIVE`。
 
-### 14.3 每周知识评审
+### 13.3 每周知识评审
 
 每周任务只消费每日记录中的知识候选：
 
@@ -785,9 +632,9 @@ flowchart LR
 
 默认状态：`PAUSED`，需要用户决定是否启用。
 
-## 15. 安装、更新与诊断
+## 14. 安装、更新与诊断
 
-### 15.1 安装
+### 14.1 安装
 
 `xiaoh-setup`调用运行时管理器：
 
@@ -804,7 +651,7 @@ flowchart LR
 
 安装器不会直接写Codex内部自动化TOML。
 
-### 15.2 更新
+### 14.2 更新
 
 更新采用“备份 + 受管同步”：
 
@@ -814,7 +661,7 @@ flowchart LR
 - `AGENTS.md`和角色目录按受管规则同步。
 - Hook变化后要求重新启动Codex并重新审核信任。
 
-### 15.3 Doctor
+### 14.3 Doctor
 
 Doctor检查：
 
@@ -835,7 +682,7 @@ Doctor检查：
 - `degraded`：核心可用，但可选能力、自动化绑定或运行时证明不完整。
 - `failed`：核心配置、门禁、版本、Agent或路径存在阻断问题。
 
-## 16. 16个Skill的职责
+## 15. 16个Skill的职责
 
 | Skill | 作用 |
 | --- | --- |
@@ -858,7 +705,7 @@ Doctor检查：
 
 插件来源前缀例如`xiaoh:spec-rfc-reviewer`只表示Skill来自`xiaoh`插件，不表示创建了一个小H子Agent。
 
-## 17. 失败关闭与降级行为
+## 16. 失败关闭与降级行为
 
 | 场景 | 行为 |
 | --- | --- |
@@ -875,7 +722,7 @@ Doctor检查：
 | 当前结果仅完成一个阶段 | 记录`stage_completed`，不伪装为整个任务完成 |
 | 证据不足 | 标记`unknown`或`pending`，不猜测 |
 
-## 18. 安全和可信边界
+## 17. 安全和可信边界
 
 小H的治理信任根包括：
 
@@ -897,7 +744,7 @@ Doctor检查：
 
 它不能抵抗拥有同等操作系统权限的操作者同时替换Hook、配置、上下文、证明和验证器。需要抵抗此类主体时，必须引入独立密钥、签名服务或隔离执行身份。
 
-## 19. 一次典型使用
+## 18. 一次典型使用
 
 用户：
 
@@ -923,7 +770,7 @@ Doctor检查：
 
 用户不需要选择Agent、设计任务拆分、决定文档顺序或反复发送“继续”。
 
-## 20. 当前实现边界与后续扩展
+## 19. 当前实现边界与后续扩展
 
 当前实现有意保持以下边界：
 
@@ -947,7 +794,7 @@ Doctor检查：
 
 权限、门禁、Agent新增删除、并发、模型和工具范围的变化必须先由用户确认，并通过校验和路由回归。
 
-## 21. 验证入口
+## 20. 验证入口
 
 基础验证：
 

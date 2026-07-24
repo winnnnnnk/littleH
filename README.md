@@ -10,9 +10,10 @@
 
 ## 设计与实现
 
-README用于安装和快速使用。小H的组件架构、根线程交互、与Playbook的职责边界、需求生命周期、专业Agent、Hook硬门禁、任务证据、Workspace路由、Obsidian知识生命周期、自动化及失败关闭逻辑详见：
+README用于安装和快速使用。小H自身实现以及小H与Playbook的协作关系分别说明，避免两个主题混在同一份文档中：
 
 - [小H实现设计](docs/implementation-design.md)
+- [小H与Playbook的关系](docs/xiaoh-playbook-relationship.md)
 - [安全与可信边界](SECURITY.md)
 
 ## 支持环境
