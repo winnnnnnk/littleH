@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -19,6 +20,14 @@ CLOSEOUT_SCRIPT = (
 CLOSEOUT_SPEC = importlib.util.spec_from_file_location("xiaoh_closeout_key", CLOSEOUT_SCRIPT)
 CLOSEOUT = importlib.util.module_from_spec(CLOSEOUT_SPEC)
 CLOSEOUT_SPEC.loader.exec_module(CLOSEOUT)
+
+BASELINE_SCRIPT = (
+    Path(__file__).parents[1]
+    / "plugins/xiaoh/skills/xiaoh-requirement-baseline/scripts/validate_baseline.py"
+)
+BASELINE_SPEC = importlib.util.spec_from_file_location("xiaoh_validate_baseline", BASELINE_SCRIPT)
+BASELINE = importlib.util.module_from_spec(BASELINE_SPEC)
+BASELINE_SPEC.loader.exec_module(BASELINE)
 
 
 class CompanionTests(unittest.TestCase):
@@ -36,6 +45,7 @@ class CompanionTests(unittest.TestCase):
         self.assertEqual(plugin["version"], version)
         self.assertEqual(actual_skills, sorted(dependencies["bundled_skills"]))
         self.assertIn("xiaoh-knowledge-promotion", actual_skills)
+        self.assertIn("xiaoh-requirement-baseline", actual_skills)
 
     def write_automation(self, codex, logical_id, task_id, **overrides):
         template = XIAOH.automation_templates()[logical_id]
@@ -127,6 +137,13 @@ class CompanionTests(unittest.TestCase):
     def test_local_config_adds_automation_bindings_without_losing_local_values(self):
         local = {
             "custom": "retained",
+            "workspaces": {
+                "existing": {
+                    "project": "Existing project",
+                    "system": "Existing system",
+                    "roots": ["/existing"],
+                }
+            },
             "managed_automations": {
                 "xiaoh.daily-progress": {
                     "task_id": "existing-task",
@@ -144,6 +161,200 @@ class CompanionTests(unittest.TestCase):
             merged["managed_automations"]["xiaoh.daily-progress"]["task_id"],
         )
         self.assertIn("xiaoh.weekly-knowledge-review", merged["managed_automations"])
+        self.assertIn("existing", merged["workspaces"])
+
+    def test_invalid_workspace_registry_is_not_silently_replaced(self):
+        with self.assertRaisesRegex(ValueError, "拒绝静默覆盖"):
+            XIAOH.merged_local_config(
+                {"workspaces": ["legacy-entry"]},
+                Path("/codex"),
+                Path("/vault"),
+                "2.11.0",
+            )
+
+    def test_setup_rejects_invalid_workspace_registry_before_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            codex = root / "codex"
+            vault = root / "vault"
+            config = root / "config.json"
+            marker = codex / "retained.txt"
+            marker.parent.mkdir()
+            marker.write_text("retained\n", encoding="utf-8")
+            config.write_text('{"workspaces": ["legacy-entry"]}\n', encoding="utf-8")
+            args = SimpleNamespace(
+                codex_home=str(codex),
+                vault=str(vault),
+                config=str(config),
+                active_skill_root=None,
+            )
+
+            result = XIAOH.install(args, "update")
+            marker_text = marker.read_text(encoding="utf-8")
+
+        self.assertEqual("failed", result["status"])
+        self.assertIn("workspaces必须是JSON对象", result["errors"][0])
+        self.assertEqual("retained\n", marker_text)
+
+    def test_workspace_registration_and_nested_resolution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            codex = root / "codex"
+            vault = root / "vault"
+            config = root / "config.json"
+            workspace = root / "workspace"
+            member = workspace / "base-repo/member"
+            member.mkdir(parents=True)
+            config.write_text("{}\n", encoding="utf-8")
+
+            registered = XIAOH.register_workspace(
+                config,
+                codex,
+                vault,
+                "example-ra",
+                "Example project",
+                "RA 9.2.0",
+                str(workspace),
+            )
+            resolved = XIAOH.resolve_workspace(XIAOH.load_json(config), member)
+
+        self.assertEqual("passed", registered["status"])
+        self.assertEqual("known", resolved["status"])
+        self.assertEqual("example-ra", resolved["workspace"]["workspace_id"])
+        self.assertEqual("Example project", resolved["workspace"]["project"])
+        self.assertEqual("RA 9.2.0", resolved["workspace"]["system"])
+
+    def test_workspace_registration_rejects_silent_reassignment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.json"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            config.write_text("{}\n", encoding="utf-8")
+
+            first = XIAOH.register_workspace(
+                config, root / "codex", root / "vault",
+                "first", "Project A", "System A", str(workspace),
+            )
+            second = XIAOH.register_workspace(
+                config, root / "codex", root / "vault",
+                "second", "Project B", "System B", str(workspace),
+            )
+
+        self.assertEqual("passed", first["status"])
+        self.assertEqual("failed", second["status"])
+        self.assertIn("禁止静默改派", second["errors"][0])
+
+    def test_workspace_registration_rejects_conflicted_registry_without_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.json"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            original = {
+                "workspaces": {
+                    "first": {
+                        "project": "Project A",
+                        "system": "System A",
+                        "bindings": [{"root": str(workspace), "platform": XIAOH.platform.system().lower()}],
+                    },
+                    "second": {
+                        "project": "Project B",
+                        "system": "System B",
+                        "bindings": [{"root": str(workspace), "platform": XIAOH.platform.system().lower()}],
+                    },
+                }
+            }
+            config.write_text(json.dumps(original), encoding="utf-8")
+
+            result = XIAOH.register_workspace(
+                config, root / "codex", root / "vault",
+                "third", "Project C", "System C", str(workspace),
+            )
+            stored = json.loads(config.read_text(encoding="utf-8"))
+
+        self.assertEqual("failed", result["status"])
+        self.assertEqual(original, stored)
+
+    def test_foreign_platform_binding_is_preserved_and_local_root_can_be_added(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.json"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            current = XIAOH.platform.system().lower()
+            foreign = "windows" if current != "windows" else "darwin"
+            foreign_root = r"C:\workspace" if foreign == "windows" else "/Users/example/workspace"
+            config.write_text(json.dumps({
+                "workspaces": {
+                    "example": {
+                        "project": "Example project",
+                        "system": "Example system",
+                        "bindings": [{"root": foreign_root, "platform": foreign}],
+                    }
+                }
+            }), encoding="utf-8")
+
+            before = XIAOH.resolve_workspace(XIAOH.load_json(config), workspace)
+            registered = XIAOH.register_workspace(
+                config, root / "codex", root / "vault",
+                "example", "Example project", "Example system", str(workspace),
+            )
+            stored = XIAOH.load_json(config)
+            after = XIAOH.resolve_workspace(stored, workspace)
+
+        self.assertEqual("unknown", before["status"])
+        self.assertEqual("passed", registered["status"])
+        self.assertEqual("known", after["status"])
+        self.assertIn(
+            {"root": foreign_root, "platform": foreign},
+            stored["workspaces"]["example"]["bindings"],
+        )
+
+    def test_platformless_legacy_root_is_preserved_and_local_root_can_be_added(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.json"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            current = XIAOH.platform.system().lower()
+            foreign_root = r"C:\workspace" if current != "windows" else "/Users/example/workspace"
+            config.write_text(json.dumps({
+                "workspaces": {
+                    "example": {
+                        "project": "Example project",
+                        "system": "Example system",
+                        "roots": [foreign_root],
+                    }
+                }
+            }), encoding="utf-8")
+
+            before = XIAOH.resolve_workspace(XIAOH.load_json(config), workspace)
+            registered = XIAOH.register_workspace(
+                config, root / "codex", root / "vault",
+                "example", "Example project", "Example system", str(workspace),
+            )
+            stored = XIAOH.load_json(config)
+            after = XIAOH.resolve_workspace(stored, workspace)
+
+        self.assertEqual("unknown", before["status"])
+        self.assertEqual("passed", registered["status"])
+        self.assertEqual("known", after["status"])
+        self.assertIn(
+            {"root": foreign_root, "platform": "unknown"},
+            stored["workspaces"]["example"]["bindings"],
+        )
+
+    def test_unknown_workspace_is_not_guessed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "unregistered"
+            target.mkdir()
+
+            resolved = XIAOH.resolve_workspace({"workspaces": {}}, target)
+
+        self.assertEqual("unknown", resolved["status"])
+        self.assertIsNone(resolved["workspace"])
 
     def test_automation_report_degrades_only_for_required_unbound_task(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -498,8 +709,180 @@ class CompanionTests(unittest.TestCase):
         self.assertIn("00-工作台/我的工作台.base", manifest)
         self.assertIn("02-领域知识/知识库.base", manifest)
         self.assertIn("03-可复用方法/复用卡模板.md", manifest)
+        self.assertIn("03-需求与方案/业务逻辑基线模板.md", manifest)
         self.assertIn("00-工作台/属性与状态说明.md", manifest)
         self.assertNotIn("00-工作台/我的工作偏好.md", manifest)
+
+    def test_requirement_baseline_separates_confirmation_from_pending_input(self):
+        root = Path(__file__).parents[1]
+        skill = (
+            root / "plugins/xiaoh/skills/xiaoh-requirement-baseline/SKILL.md"
+        ).read_text(encoding="utf-8")
+        template = (
+            root
+            / "plugins/xiaoh/runtime/obsidian/development-vault"
+            / "03-需求与方案/业务逻辑基线模板.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("one canonical page per business topic", skill)
+        self.assertIn("question", skill)
+        self.assertIn("hypothesis", skill)
+        for state in ("pending", "confirmed", "superseded", "rejected"):
+            self.assertIn(f"`{state}`", skill)
+        self.assertIn("type: requirement_baseline", template)
+        self.assertIn("baseline_revision:", template)
+        self.assertIn("## 确认点", template)
+        self.assertIn("## 与正式工件的追溯", template)
+        self.assertIn("superseded_by", template)
+
+    def write_baseline(self, path, rows):
+        path.write_text(
+            "\n".join([
+                "# Baseline",
+                "",
+                "## 确认点",
+                "",
+                "| " + " | ".join(BASELINE.REQUIRED_COLUMNS) + " |",
+                "| " + " | ".join("---" for _ in BASELINE.REQUIRED_COLUMNS) + " |",
+                *("| " + " | ".join(row) + " |" for row in rows),
+                "",
+                "## 修订历史",
+            ]),
+            encoding="utf-8",
+        )
+
+    def test_requirement_baseline_validator_enforces_evidence_ids_and_supersession(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = root / "valid.md"
+            self.write_baseline(valid, [
+                ["REQ-1", "confirmed", "-", "rule", "reason", "turn-1", "scope", "accept", "trace", "-"],
+                ["REQ-2", "superseded", "REQ-3", "old", "reason", "turn-2", "scope", "accept", "trace", "-"],
+                ["REQ-3", "confirmed", "-", "new", "reason", "turn-3", "scope", "accept", "trace", "-"],
+            ])
+            points = BASELINE.confirmation_points(valid)
+            self.assertEqual(3, len(points))
+
+            missing_evidence = root / "missing.md"
+            self.write_baseline(missing_evidence, [
+                ["REQ-1", "confirmed", "-", "rule", "reason", "-", "scope", "accept", "trace", "-"],
+            ])
+            with self.assertRaisesRegex(ValueError, "缺少证据"):
+                BASELINE.confirmation_points(missing_evidence)
+
+            duplicate = root / "duplicate.md"
+            self.write_baseline(duplicate, [
+                ["REQ-1", "pending", "-", "rule", "reason", "-", "scope", "accept", "trace", "open"],
+                ["REQ-1", "pending", "-", "rule", "reason", "-", "scope", "accept", "trace", "open"],
+            ])
+            with self.assertRaisesRegex(ValueError, "ID重复"):
+                BASELINE.confirmation_points(duplicate)
+
+    def test_requirement_baseline_validator_allows_forward_transition_only(self):
+        def point(state, rule):
+            return {
+                "状态": state,
+                "业务规则": rule,
+                "设计依据": "reason",
+                "证据与确认来源": "turn-1",
+                "适用与排除范围": "scope",
+                "验收条件": "accept",
+                "影响与追溯": "trace",
+                "剩余不确定项": "-",
+            }
+
+        previous = {
+            "REQ-1": point("pending", "pending rule"),
+            "REQ-2": point("confirmed", "confirmed rule"),
+            "REQ-3": point("pending", "successor rule"),
+        }
+        current = {
+            "REQ-1": point("confirmed", "final rule"),
+            "REQ-2": point("superseded", "confirmed rule"),
+            "REQ-3": point("confirmed", "successor rule"),
+        }
+        current["REQ-2"]["superseded_by"] = "REQ-3"
+        BASELINE.validate_transition(previous, current)
+        with self.assertRaisesRegex(ValueError, "非法状态转换"):
+            BASELINE.validate_transition(
+                {"REQ-1": point("confirmed", "rule")},
+                {"REQ-1": point("pending", "rule")},
+            )
+        with self.assertRaisesRegex(ValueError, "原地改写"):
+            BASELINE.validate_transition(
+                {"REQ-1": point("confirmed", "old rule")},
+                {"REQ-1": point("confirmed", "new rule")},
+            )
+        preexisting = {
+            "REQ-1": point("confirmed", "old rule"),
+            "REQ-2": point("confirmed", "other old rule"),
+        }
+        replaced = {
+            "REQ-1": point("superseded", "old rule"),
+            "REQ-2": point("confirmed", "other old rule"),
+        }
+        replaced["REQ-1"]["superseded_by"] = "REQ-2"
+        with self.assertRaisesRegex(ValueError, "本版新增或由pending"):
+            BASELINE.validate_transition(preexisting, replaced)
+
+    def test_requirement_baseline_validator_rejects_invalid_successors_and_table(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pending_successor = root / "pending-successor.md"
+            self.write_baseline(pending_successor, [
+                ["REQ-1", "superseded", "REQ-2", "old", "reason", "turn-1", "scope", "accept", "trace", "-"],
+                ["REQ-2", "pending", "-", "new", "reason", "-", "scope", "accept", "trace", "open"],
+            ])
+            with self.assertRaisesRegex(ValueError, "必须是confirmed"):
+                BASELINE.confirmation_points(pending_successor)
+
+            self_reference = root / "self-reference.md"
+            self.write_baseline(self_reference, [
+                ["REQ-1", "superseded", "REQ-1", "old", "reason", "turn-1", "scope", "accept", "trace", "-"],
+            ])
+            with self.assertRaisesRegex(ValueError, "不得指向自身"):
+                BASELINE.confirmation_points(self_reference)
+
+            missing_separator = root / "missing-separator.md"
+            missing_separator.write_text(
+                "\n".join([
+                    "# Baseline",
+                    "",
+                    "## 确认点",
+                    "",
+                    "| " + " | ".join(BASELINE.REQUIRED_COLUMNS) + " |",
+                    "| REQ-1 | confirmed | - | rule | reason | turn-1 | scope | accept | trace | - |",
+                ]),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "分隔行"):
+                BASELINE.confirmation_points(missing_separator)
+
+            missing_pipe = root / "missing-leading-pipe.md"
+            missing_pipe.write_text(
+                "\n".join([
+                    "# Baseline",
+                    "",
+                    "## 确认点",
+                    "",
+                    "| " + " | ".join(BASELINE.REQUIRED_COLUMNS) + " |",
+                    "| " + " | ".join("---" for _ in BASELINE.REQUIRED_COLUMNS) + " |",
+                    "REQ-1 | confirmed | - | rule | reason | turn-1 | scope | accept | trace | - |",
+                ]),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "无法解析"):
+                BASELINE.confirmation_points(missing_pipe)
+
+    def test_knowledge_promotion_references_business_baseline_instead_of_copying_rules(self):
+        skill = (
+            Path(__file__).parents[1]
+            / "plugins/xiaoh/skills/xiaoh-knowledge-promotion/SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("stable point IDs", skill)
+        self.assertIn("Do not copy the rule text", skill)
+        self.assertIn("$xiaoh:xiaoh-requirement-baseline", skill)
 
     def test_knowledge_promotion_has_four_exclusive_routes(self):
         skill = (

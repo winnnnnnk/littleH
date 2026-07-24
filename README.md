@@ -15,7 +15,7 @@
 | macOS | `install.sh` | Python、JSON、隔离安装、Hook自检 |
 | Windows | `install-windows.cmd`或`install.ps1` | Python、JSON、隔离安装、PowerShell Hook自检 |
 
-两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看个人研发系统时安装，不是小H初始化的硬依赖；使用原生Bases视图建议Obsidian 1.9或更高版本。小H自己的14个Skill随插件发布；配套Codex插件由初始化程序根据机器可读清单自动安装。
+两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看个人研发系统时安装，不是小H初始化的硬依赖；使用原生Bases视图建议Obsidian 1.9或更高版本。小H自己的16个Skill随插件发布；配套Codex插件由初始化程序根据机器可读清单自动安装。
 
 ## 从GitHub安装
 
@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 
 依赖事实源是`plugins/xiaoh/dependencies.json`，不是README中的人工步骤：
 
-- 14个小H Skill随插件安装；任务即时收口和项目进度维护在工作完成时调用，每日成果推送和每周知识候选评审作为托管定时任务模板发布。
+- 16个小H Skill随插件安装；Workspace归属、业务需求与设计基线、任务即时收口和项目进度维护按工作阶段调用，每日成果推送和每周知识候选评审作为托管定时任务模板发布。
 - Ponytail以及Codex提供的浏览器、文档、PDF、表格、演示、站点和可视化插件由初始化程序自动检测并安装。
 - `codebase-memory-mcp`是可选的本机增强能力。小H只检测其是否存在，不会下载或执行第三方远程安装脚本；缺失时自动使用本地代码搜索，不影响核心运行。
 - `$xiaoh-doctor`会把当前机器报告为`complete`或`degraded`，并列出实际缺失能力。
@@ -85,6 +85,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 ## 插件结构
 
 - `xiaoh-core`：根线程沟通、分析、路由、验收与知识沉淀。
+- `xiaoh-workspace-routing`：首次确认Workspace的项目和系统归属并持久化；后续自动识别，冲突时停止业务写回；Windows与macOS路径按平台绑定，换机后保留旧绑定并重新核对本机路径。
 - 公共交互门禁：所有专业Agent都必须区分提问、假设、事实纠正、业务决策和执行指令，并在输出中给出证据依据、重大冲突、不确定项和推荐结论。
 - `xiaoh-requirement-routing`：在业务任务进入成员确认、任务创建、OpenSpec或实现前，选择`openspec_only`、`spec_rfc_then_openspec`或`class_skill`，并执行需求工件门禁。
 - Spec+RFC路线固定执行两道评审：先用`xiaoh:spec-rfc-reviewer`审核源工件准入质量；生成OpenSpec后再用`xiaoh:spec-rfc-openspec-consistency-review`审核完整承接与语义一致性。`xiaoh:`只表示插件来源，不表示子Agent；校验器兼容已有的无前缀全局副本。
@@ -95,7 +96,8 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 - `xiaoh-task-closeout`：任务或稳定阶段完成后立即按意图域写入当日记录；业务项目刷新项目进度，全局能力和Playbook平台使用各自记录，不等待定时任务。
 - `xiaoh-project-progress`：根据已收口结果刷新项目当前阶段、工作线、阻塞、风险和下一里程碑。
 - Obsidian双入口：工作台使用原生Bases展示今日重点、待确认、当前项目、进行中任务和最近成果；知识库独立展示项目知识、领域知识、可复用方法和个人系统。
-- `xiaoh-knowledge-promotion`：核对候选与验收证据，将其晋升到唯一长期知识范围；工作流水和项目进度不会被直接当成知识。
+- `xiaoh-knowledge-promotion`：核对候选与验收证据，将其晋升到唯一长期知识范围；业务规则只引用主题基线和稳定确认点ID，不复制出第二份事实源。
+- `xiaoh-requirement-baseline`：业务确认后立即维护一项业务主题的一份持续演进基线，严格区分确认、待定、取代和拒绝状态，并用确定性校验器检查证据和状态转换。
 - `xiaoh-daily-progress`：定时推送已经即时收口的每日成果，并报告缺少收口键的已完成任务，不补写项目总结。
 - `xiaoh-knowledge-review`：每周只评审每日记录中的知识候选，不自动覆盖正式知识。
 - 托管任务只通过Codex支持的定时任务能力创建或更新；小H不直接修改内部automation TOML。每日任务由小H管理为启用，每周任务管理为暂停；绑定和Doctor都会读取实际任务文件核对名称、提示词和状态，能力不可用或运行态漂移时报告`degraded`，不影响小H核心能力。

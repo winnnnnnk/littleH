@@ -11,7 +11,7 @@ Treat this as part of the current task, not as a scheduled recap. Run it after o
 2. Confirm that the result is accepted or that a named milestone is complete. Do not mark the whole task complete when only a stage completed.
 3. Use the current task, Playbook state, repository diff, tests, reviews, and evidence locations as facts. Keep raw logs in task evidence and exclude credentials, tokens, private keys, and production secrets.
 4. Classify exactly one intent domain and route the record:
-   - `business_project`: resolve an existing project from explicit paths or project navigation, then use `01-项目/<project>/工作记录/YYYY-MM-DD.md`;
+   - `business_project`: run `$xiaoh:xiaoh-workspace-routing`, require a `known` Workspace mapping, then use `01-项目/<project>/工作记录/YYYY-MM-DD.md`;
    - `global_agent_capability`: use `07-工作记录/全局能力/YYYY-MM-DD.md`;
    - `playbook_platform`: use `07-工作记录/平台/YYYY-MM-DD.md`.
    Do not guess a business project. A pure consultation with no accepted durable result is `no_durable_knowledge` and does not write the Vault.

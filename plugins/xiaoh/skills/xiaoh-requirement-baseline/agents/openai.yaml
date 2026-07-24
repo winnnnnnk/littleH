@@ -1,0 +1,4 @@
+interface:
+  display_name: "小H业务基线"
+  short_description: "将已确认业务规则、设计依据和追溯关系即时维护到主题基线"
+  default_prompt: "使用 $xiaoh-requirement-baseline，把本轮已确认的业务规则和设计依据更新到对应主题基线。"

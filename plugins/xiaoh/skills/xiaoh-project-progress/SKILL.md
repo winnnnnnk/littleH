@@ -7,7 +7,7 @@ description: Maintain an evidence-backed current project progress snapshot in Xi
 
 Maintain `01-项目/<project>/项目进度.md` as the current-state view. Daily records remain the chronological history.
 
-1. Resolve and validate the configured Vault and an existing project identity. Do not infer a project from similar names.
+1. Resolve and validate the configured Vault. When invoked from a Workspace, run `$xiaoh:xiaoh-workspace-routing` and require its registered project identity. Do not infer a project from similar names.
 2. Read only accepted closeout records, linked requirement/task pages, and authoritative managed-task status needed for the snapshot. Do not reconstruct progress from unverified repository artifacts.
 3. Ensure `项目进度.md` uses the shared Vault properties with `type: project_progress`, the exact `project` identity, `domain`, lifecycle `status`, independent `health`, `owner: xiaoh`, `needs_user_decision: false`, `focus: false`, `next_action`, `updated`, and `evidence_cutoff`. Then upsert these sections:
    - update time, current phase, overall status, and evidence cutoff;

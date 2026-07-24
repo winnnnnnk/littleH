@@ -1,0 +1,4 @@
+interface:
+  display_name: "小H Workspace 归属"
+  short_description: "首次确认并持续解析 Workspace 的项目与系统归属"
+  default_prompt: "Use $xiaoh-workspace-routing to resolve the current Workspace project and system."

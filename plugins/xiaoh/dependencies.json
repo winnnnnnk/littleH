@@ -11,10 +11,12 @@
     "xiaoh-knowledge-promotion",
     "xiaoh-knowledge-review",
     "xiaoh-project-progress",
+    "xiaoh-requirement-baseline",
     "xiaoh-requirement-routing",
     "xiaoh-setup",
     "xiaoh-task-closeout",
-    "xiaoh-update"
+    "xiaoh-update",
+    "xiaoh-workspace-routing"
   ],
   "codex_plugins": [
     {
