@@ -10,7 +10,7 @@
 
 ## 设计与实现
 
-README用于安装和快速使用。小H的组件架构、根线程交互、需求生命周期、专业Agent、Hook硬门禁、任务证据、Workspace路由、Obsidian知识生命周期、自动化及失败关闭逻辑详见：
+README用于安装和快速使用。小H的组件架构、根线程交互、与Playbook的职责边界、需求生命周期、专业Agent、Hook硬门禁、任务证据、Workspace路由、Obsidian知识生命周期、自动化及失败关闭逻辑详见：
 
 - [小H实现设计](docs/implementation-design.md)
 - [安全与可信边界](SECURITY.md)
