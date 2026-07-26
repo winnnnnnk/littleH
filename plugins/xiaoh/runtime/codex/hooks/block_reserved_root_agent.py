@@ -140,25 +140,6 @@ def pending_path(home: Path, session_id: str, agent_type: str) -> Path:
     return home / "agent-system" / "delegation-pending" / session / f"{agent}.json"
 
 
-def publish_exclusive(source: str | Path, target: Path) -> None:
-    try:
-        os.link(source, target)
-        return
-    except FileExistsError:
-        raise
-    except OSError:
-        pass
-    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(Path(source).read_bytes())
-            stream.flush()
-            os.fsync(stream.fileno())
-    except BaseException:
-        target.unlink(missing_ok=True)
-        raise
-
-
 def managed_playbook_binding(context: dict[str, Any], delegated_agent: str) -> dict[str, Any]:
     playbook = context.get("playbook")
     if (
@@ -409,7 +390,7 @@ def prepare_delegation_intent(payload: dict[str, Any], home: Path, run_validator
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(temporary_name, 0o600)
-        publish_exclusive(temporary_name, target)
+        os.link(temporary_name, target)
         return target
     finally:
         if os.path.exists(temporary_name):
@@ -432,7 +413,7 @@ def consume_subagent_start(payload: dict[str, Any], home: Path) -> tuple[Path, s
     claim_lock = source.with_suffix(".claim-lock")
     claim_lock.mkdir()
     try:
-        publish_exclusive(source, claimed)
+        os.link(source, claimed)
         source.unlink()
     finally:
         claim_lock.rmdir()
@@ -463,7 +444,7 @@ def consume_subagent_start(payload: dict[str, Any], home: Path) -> tuple[Path, s
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(temporary_name, 0o600)
-        publish_exclusive(temporary_name, target)
+        os.link(temporary_name, target)
     finally:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
@@ -968,7 +949,7 @@ def self_test() -> None:
 
 
 def main() -> None:
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
     try:
