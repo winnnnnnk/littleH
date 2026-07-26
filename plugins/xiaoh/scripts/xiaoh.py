@@ -794,6 +794,30 @@ def playbook_adapter_report(
             "version": None,
             "errors": [f"缺少小H Playbook适配器: {adapter}"],
         }
+    if mode == "disabled":
+        return {
+            "status": "not_enabled",
+            "mode": mode,
+            "command": playbook_command,
+            "version": None,
+            "worker_json_contract": False,
+            "task_status_contract": False,
+            "errors": [],
+        }
+    executable = shutil.which(playbook_command)
+    if not executable:
+        return {
+            "status": "not_enabled" if mode == "auto" else "missing",
+            "mode": mode,
+            "command": playbook_command,
+            "version": None,
+            "worker_json_contract": False,
+            "task_status_contract": False,
+            "errors": (
+                [] if mode == "auto"
+                else [f"未找到Playbook命令: {playbook_command}"]
+            ),
+        }
     completed = subprocess.run(
         [
             sys.executable,
@@ -802,7 +826,7 @@ def playbook_adapter_report(
             "--mode",
             mode,
             "--playbook-command",
-            playbook_command,
+            executable,
         ],
         capture_output=True,
         text=True,
