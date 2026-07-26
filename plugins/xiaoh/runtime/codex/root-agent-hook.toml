@@ -4,8 +4,8 @@ matcher = "^(Agent|spawn_agent)$"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py"'
-command_windows = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "__CODEX_HOME__/hooks/block_reserved_root_agent.ps1"'
+command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --config "__XIAOH_CONFIG__"'
+command_windows = '"__PYTHON_WINDOWS__" "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --config "__XIAOH_CONFIG__"'
 timeout = 20
 statusMessage = "校验 Agent 委派上下文与角色权限"
 
@@ -14,8 +14,8 @@ matcher = "^(apply_patch|exec_command)$"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = 'python3 "__CODEX_HOME__/hooks/guard_vault_writes.py"'
-command_windows = 'py -3 "__CODEX_HOME__/hooks/guard_vault_writes.py"'
+command = 'python3 "__CODEX_HOME__/hooks/guard_vault_writes.py" --config "__XIAOH_CONFIG__"'
+command_windows = 'py -3 "__CODEX_HOME__/hooks/guard_vault_writes.py" --config "__XIAOH_CONFIG__"'
 timeout = 10
 statusMessage = "校验小H Obsidian Vault写入路径"
 
@@ -24,8 +24,8 @@ matcher = ".*"
 
 [[hooks.SubagentStart.hooks]]
 type = "command"
-command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --subagent-start'
-command_windows = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "__CODEX_HOME__/hooks/block_reserved_root_agent.ps1" -SubagentStart'
+command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --config "__XIAOH_CONFIG__" --subagent-start'
+command_windows = '"__PYTHON_WINDOWS__" "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --config "__XIAOH_CONFIG__" --subagent-start'
 timeout = 20
 statusMessage = "绑定专业 Agent 运行身份与任务上下文"
 
@@ -34,8 +34,8 @@ matcher = ".*"
 
 [[hooks.SubagentStop.hooks]]
 type = "command"
-command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --subagent-stop'
-command_windows = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "__CODEX_HOME__/hooks/block_reserved_root_agent.ps1" -SubagentStop'
+command = 'python3 "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --config "__XIAOH_CONFIG__" --subagent-stop'
+command_windows = '"__PYTHON_WINDOWS__" "__CODEX_HOME__/hooks/block_reserved_root_agent.py" --config "__XIAOH_CONFIG__" --subagent-stop'
 timeout = 20
 statusMessage = "认证专业 Agent 有效委派回执"
 # xiaoh-root-agent-hook:end

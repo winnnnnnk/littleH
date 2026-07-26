@@ -1,6 +1,6 @@
 # 小H实现设计
 
-> 适用版本：2.11.0
+> 适用版本：2.14.0
 >
 > 文档定位：说明小H实现了什么、各组件如何协作、哪些规则由运行时强制，以及一次任务如何从沟通走到交付和知识沉淀。
 >
@@ -12,12 +12,12 @@
 
 它由以下部分共同实现：
 
-1. Codex插件：发布16个Skill和插件元数据。
+1. Codex插件：发布18个Skill和插件元数据。
 2. 根线程协调规则：理解用户目标、核对证据、形成推荐方案并持续推进。
 3. 公共执行契约：为根线程和所有专业Agent规定事实源、权限、门禁、证据和收口要求。
 4. 专业Agent目录：提供8种跨项目复用的探索、设计、实现和评审角色。
 5. 运行时Hook：约束Agent委派和Obsidian写入路径。
-6. 任务治理资产：使用schema 1.4任务上下文、运行记录、路由案例和校验器形成可检查证据。
+6. 任务治理资产：使用schema 1.5任务上下文、项目历史召回清单、运行记录、路由案例和校验器形成可检查证据。
 7. 本地运行时管理：负责安装、更新、诊断、Workspace注册和托管任务绑定。
 8. Obsidian研发系统：将当前工作、项目进度和长期知识分开管理。
 
@@ -60,10 +60,12 @@ flowchart TB
     U["用户<br/>目标、现象、业务决定"] --> R["小H根线程<br/>理解、核对、推荐、裁决"]
 
     R --> C["公共契约<br/>事实源、意图域、门禁、收口"]
-    R --> S["16个Skill<br/>按阶段提供确定工作流"]
-    R --> T["schema 1.4任务上下文<br/>目标、范围、来源、权限、验收"]
+    R --> S["18个Skill<br/>按阶段提供确定工作流"]
+    R --> T["schema 1.5任务上下文<br/>历史召回、目标、范围、来源、权限、验收"]
 
     T --> H1["Agent委派Hook<br/>准备一次性意图"]
+    PB["可选Playbook集成<br/>仅显式受管任务激活"] -.-> PA["适配凭证<br/>身份、范围、动作、时效"]
+    PA --> H1
     H1 --> A["8种专业Agent<br/>探索、架构、实现、评审"]
     A --> H2["SubagentStart/Stop<br/>绑定身份、回执、转录"]
     H2 --> E["运行证据<br/>run record + proof + transcript"]
@@ -94,7 +96,8 @@ flowchart TB
 | Hook配置 | `plugins/xiaoh/runtime/codex/root-agent-hook.toml` | 四类运行时Hook的注册模板 |
 | Hook实现 | `plugins/xiaoh/runtime/codex/hooks/` | Agent委派、Vault路径和运行时信任校验 |
 | 治理校验器 | `plugins/xiaoh/runtime/codex/agent-system/validate.py` | 上下文、运行记录、路由和收口门禁校验 |
-| 上下文模板 | `plugins/xiaoh/runtime/codex/agent-system/task-context.template.json` | schema 1.4正式任务上下文结构 |
+| 可选Playbook适配器 | `plugins/xiaoh/runtime/codex/agent-system/playbook_adapter.py` | 按`auto/enabled/disabled`配置激活；仅为明确受管任务探测只读接口、生成短时绑定并重验状态 |
+| 上下文模板 | `plugins/xiaoh/runtime/codex/agent-system/task-context.template.json` | schema 1.5正式任务上下文结构 |
 | 运行记录模板 | `plugins/xiaoh/runtime/codex/agent-system/run-record.template.json` | 门禁、验证、指标和结果采纳证据 |
 | 路由案例 | `plugins/xiaoh/runtime/codex/agent-system/routing-cases.json` | 代表性任务的最小角色集合回归基线 |
 | 运行时管理器 | `plugins/xiaoh/scripts/xiaoh.py` | 安装、更新、Doctor、Workspace和自动化绑定 |
@@ -114,6 +117,14 @@ flowchart TB
 | 长期稳定知识是什么 | 配置Vault中的正式知识页、ADR、术语和项目导航 |
 
 不同维度发生冲突时不会互相覆盖。例如，代码可以证明当前行为，但不能替用户决定目标行为；Obsidian可以帮助召回稳定结论，但不能绕过代码仓库或任务权限。
+
+### 4.1 项目历史召回
+
+业务任务先通过Workspace注册表确定项目和系统，再由`xiaoh-project-recall`按当前主题定向读取项目进度、相关任务收口、规范需求基线和已晋升知识。每日摘要只用于定位，不作为唯一权威来源。随后读取当前代码、配置、Spec+RFC、OpenSpec或任务状态，显式记录历史与现状的冲突。
+
+原始证据使用`xiaoh-project-recall/v1` JSON清单保存在任务证据目录；没有受管任务目录时放入小H配置目录的`evidence/recall`。清单绑定任务ID、Workspace、当前操作系统平台、任务关系和具体查询；每个历史来源、已检查索引和当前事实文件都记录内容SHA-256，schema 1.5任务上下文再保存清单绝对路径、SHA-256和完成时间。
+
+Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、当前平台未绑定、空查询、空历史缺少索引检查证据、同一文件通过路径大小写/硬链接/Unicode别名伪装成多类来源、需求基线权威来源缺少稳定确认点ID，以及缺少独立非摘要权威来源的清单。文件身份使用设备号与inode判等，文件哈希采用流式读取，避免路径字符串绕过和大文件校验放大内存占用。这样Obsidian中的推送内容成为后续分析的可验证输入，同时不会被误当成当前实现或执行权限。
 
 ## 5. 根线程交互逻辑
 
@@ -303,12 +314,13 @@ interrupt_message = true
 
 ### 10.1 任务上下文
 
-正式任务使用schema 1.4 JSON，至少记录：
+正式任务使用schema 1.5 JSON，至少记录：
 
 - 唯一意图域。
 - 目标、当前行为和目标行为。
 - Workspace、仓库、允许路径和禁止动作。
 - 必须读取的事实源。
+- 业务项目的历史召回状态、清单路径、哈希、任务关系和完成时间。
 - 用户表达类型、证据状态、冲突和范围缩减依据。
 - 需求工件路线和各门禁状态。
 - Agent选择和独立评审要求。
@@ -667,7 +679,8 @@ Doctor检查：
 
 - 插件源码版本、已启用插件版本、已部署运行时版本。
 - 当前线程实际加载的Skill版本。
-- 16个捆绑Skill及配套插件状态。
+- 18个捆绑Skill及配套插件状态。
+- 可选集成的配置模式与状态；Playbook只有在显式启用或任务明确受管时才要求兼容。
 - 8个Agent是否完整，是否错误存在`xiaoh`子Agent或未登记Agent。
 - 公共契约和`config.toml`受管设置。
 - 四类Hook文件、自检、启用状态和信任状态。
@@ -678,16 +691,18 @@ Doctor检查：
 
 结果分为：
 
-- `passed`：核心运行时和已要求的运行时状态一致。
-- `degraded`：核心可用，但可选能力、自动化绑定或运行时证明不完整。
+- `passed`：核心运行时和已明确要求的能力状态一致；`auto`模式下未安装Playbook属于`not_enabled`。
+- `degraded`：核心可用，但推荐能力、自动化绑定、运行时证明或显式`enabled`的集成不完整。
 - `failed`：核心配置、门禁、版本、Agent或路径存在阻断问题。
 
-## 15. 16个Skill的职责
+## 15. 18个Skill的职责
 
 | Skill | 作用 |
 | --- | --- |
 | `xiaoh-core` | 根线程交互、协调、验收和收口 |
 | `xiaoh-workspace-routing` | Workspace到项目和系统的持久化路由 |
+| `xiaoh-project-recall` | 定向召回项目历史、与当前事实对账并生成可验证清单 |
+| `xiaoh-playbook-adapter` | 仅为明确受管任务将Playbook只读worker/status事实绑定到正式委派 |
 | `xiaoh-requirement-baseline` | 业务主题确认点和设计基线 |
 | `xiaoh-requirement-routing` | 选择需求工件路线并执行门禁 |
 | `spec-rfc` | 需求工程和技术设计 |
@@ -711,10 +726,15 @@ Doctor检查：
 | --- | --- |
 | Workspace未知 | 只读核对并询问一次，确认前不做业务写回 |
 | Workspace冲突 | 停止业务副作用 |
+| 项目召回未完成、过期、越界或哈希不符 | 停止需求路由、正式委派和后续业务生命周期动作 |
 | 用户疑问与旧基线冲突 | 保留旧基线，先核对证据 |
 | Spec+RFC评审失败 | 小H吸收问题、修订并重新评审 |
 | OpenSpec一致性失败 | 修订OpenSpec并重新评审 |
 | 委派意图缺失或不匹配 | 子Agent仅可作为只读咨询 |
+| Playbook适配凭证缺失、过期或冲突 | 停止受管业务委派，重新读取当前只读事实 |
+| `auto`且Playbook CLI缺失 | 报告`not_enabled`，小H核心保持`passed` |
+| `enabled`且Playbook CLI缺失或接口不兼容 | 小H核心保持可用，Doctor降级，受管业务委派阻断 |
+| `disabled`但任务要求Playbook受管委派 | 不探测CLI，直接失败关闭并提示修改本地配置 |
 | Hook未启用或未信任 | 不声称正式委派门禁生效 |
 | Vault配置缺失或路径不安全 | 停止知识写回 |
 | 托管任务工具不可用 | 核心安装保持可用，自动化状态为`degraded` |

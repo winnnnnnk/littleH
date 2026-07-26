@@ -23,4 +23,6 @@ Use `../../scripts/xiaoh.py`, resolved from this Skill directory.
 8. Ask again only for an unknown mapping, a real conflict, a copied Workspace with changed purpose, or an explicit ownership change. Do not repeatedly ask for a registered Workspace.
 9. Keep `~/.xiaoh/config.json` as the machine-readable routing source. Obsidian project and system pages are the human-readable navigation mirror, not an alternative execution authority.
 
-Report the resolved Workspace ID, project, system, matched root, evidence basis, and any unresolved conflict.
+Report the resolved Workspace ID, project, system, matched root, evidence basis, and any unresolved
+conflict. Pass the successful result to `$xiaoh-project-recall`; a known mapping identifies which
+project memory may be read but does not by itself prove that history was recalled.

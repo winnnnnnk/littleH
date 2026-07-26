@@ -25,6 +25,15 @@ HEADER_PATTERNS = {
     "delegated_agent": re.compile(r"^delegated_agent:\s*([A-Za-z0-9_-]+)\s*$", re.MULTILINE),
 }
 RECEIPT_PATTERN = re.compile(r"(?m)^xiaoh-delegation-receipt:\s*([0-9a-f]{64})\s*$")
+REQUIREMENT_GATE_ACTIONS = {
+    "member_confirmation",
+    "task_create",
+    "openspec_authoring",
+    "openspec_consistency_review",
+    "openspec_confirmation",
+    "task_start",
+    "implementation",
+}
 
 
 def normalize_name(value: Any) -> str:
@@ -41,6 +50,18 @@ def deny(reason: str) -> dict[str, Any]:
             "permissionDecisionReason": reason,
         }
     }
+
+
+def runtime_arguments(arguments: list[str]) -> list[str]:
+    result = list(arguments)
+    if "--config" not in result:
+        return result
+    index = result.index("--config")
+    if index + 1 >= len(result) or not result[index + 1].strip():
+        raise ValueError("--config缺少小H配置路径")
+    os.environ["XIAOH_CONFIG"] = str(Path(result[index + 1]).expanduser().resolve())
+    del result[index : index + 2]
+    return result
 
 
 def blocked_name(tool_input: dict[str, Any]) -> str | None:
@@ -119,8 +140,42 @@ def pending_path(home: Path, session_id: str, agent_type: str) -> Path:
     return home / "agent-system" / "delegation-pending" / session / f"{agent}.json"
 
 
-def effective_brief(headers: dict[str, str], tool_input: dict[str, Any]) -> dict[str, str]:
-    return {
+def managed_playbook_binding(context: dict[str, Any], delegated_agent: str) -> dict[str, Any]:
+    playbook = context.get("playbook")
+    if (
+        context.get("intent", {}).get("domain") != "business_project"
+        or not isinstance(playbook, dict)
+        or not playbook.get("managed")
+    ):
+        return {}
+    routing = context.get("routing")
+    actions = routing.get("delegated_actions") if isinstance(routing, dict) else None
+    action = actions.get(delegated_agent) if isinstance(actions, dict) else None
+    required = {
+        "delegated_action": action,
+        "playbook_adapter_receipt": playbook.get("adapter_receipt"),
+        "playbook_adapter_receipt_sha256": playbook.get("adapter_receipt_sha256"),
+        "playbook_task_workspace_id": playbook.get("task_workspace_id"),
+        "playbook_member": playbook.get("member"),
+        "playbook_member_worktree": playbook.get("member_worktree"),
+        "playbook_workspace_root": playbook.get("workspace_root"),
+        "playbook_allowed_scope": playbook.get("allowed_scope"),
+    }
+    missing = [
+        key for key, value in required.items()
+        if value is None or value == "" or value == []
+    ]
+    if missing:
+        raise ValueError("managed Playbook delegation lacks " + ", ".join(missing))
+    return required
+
+
+def effective_brief(
+    headers: dict[str, str],
+    tool_input: dict[str, Any],
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    brief = {
         "schema_version": "1.0",
         "task_id": headers["task_id"],
         "task_context": str(Path(headers["task_context"]).resolve()),
@@ -130,6 +185,60 @@ def effective_brief(headers: dict[str, str], tool_input: dict[str, Any]) -> dict
         "task_name": tool_input["task_name"],
         "authority": "task_context_is_authoritative",
     }
+    if context is not None:
+        binding = managed_playbook_binding(context, headers["delegated_agent"])
+        if binding:
+            brief.update({
+                "schema_version": "1.1",
+                "authority": "task_context_and_playbook_adapter_receipt",
+                **binding,
+            })
+    return brief
+
+
+def revalidate_managed_playbook_context(
+    context: dict[str, Any], context_path: Path, home: Path
+) -> None:
+    playbook = context.get("playbook") if isinstance(context, dict) else None
+    if (
+        context.get("intent", {}).get("domain") != "business_project"
+        or not isinstance(playbook, dict)
+        or not playbook.get("managed")
+    ):
+        return
+    validator = home / "agent-system" / "validate.py"
+    checked = subprocess.run(
+        [sys.executable, str(validator), "--task-context", str(context_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=45,
+        check=False,
+    )
+    if checked.returncode != 0:
+        detail = (checked.stdout or checked.stderr).strip().splitlines()
+        raise ValueError(
+            "pending intent Playbook binding is no longer valid"
+            + (": " + detail[-1] if detail else "")
+        )
+
+
+def revalidate_task_context(context_path: Path, home: Path) -> None:
+    validator = home / "agent-system" / "validate.py"
+    checked = subprocess.run(
+        [sys.executable, str(validator), "--task-context", str(context_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=45,
+        check=False,
+    )
+    if checked.returncode != 0:
+        detail = (checked.stdout or checked.stderr).strip().splitlines()
+        raise ValueError(
+            "pending intent task context is no longer valid"
+            + (": " + detail[-1] if detail else "")
+        )
 
 
 def canonical_hash(value: Any) -> str:
@@ -176,7 +285,10 @@ def handle_subagent_start(payload: dict[str, Any], home: Path) -> dict[str, Any]
         result = consume_subagent_start(payload, home)
         context = result[1] if result is not None else unauthorized_subagent_context()
         return subagent_start_response(context)
-    except (OSError, ValueError, TypeError, KeyError, UnicodeError, json.JSONDecodeError) as exc:
+    except (
+        OSError, ValueError, TypeError, KeyError, UnicodeError,
+        json.JSONDecodeError, subprocess.SubprocessError,
+    ) as exc:
         return subagent_start_response(
             unauthorized_subagent_context(), f"小H委派证明生成失败：{exc}"
         )
@@ -198,18 +310,6 @@ def validate_pending_intent(intent: Any, runtime: dict[str, str], home: Path) ->
             raise ValueError(f"pending intent {key}")
     if intent["session_id"] != runtime["session_id"] or intent["agent_type"] != runtime["agent_type"]:
         raise ValueError("pending intent binding")
-    expected_brief = {
-        "schema_version": "1.0",
-        "task_id": intent["task_id"],
-        "task_context": intent["task_context"],
-        "context_hash": intent["context_hash"],
-        "delegated_agent": intent["delegated_agent"],
-        "agent_type": intent["agent_type"],
-        "task_name": intent["task_name"],
-        "authority": "task_context_is_authoritative",
-    }
-    if intent["effective_brief"] != expected_brief or intent["effective_brief_hash"] != canonical_hash(expected_brief):
-        raise ValueError("pending intent effective brief")
     context_path = Path(intent["task_context"])
     if not context_path.is_absolute() or not context_path.is_file():
         raise ValueError("pending intent task context")
@@ -217,6 +317,22 @@ def validate_pending_intent(intent: Any, runtime: dict[str, str], home: Path) ->
     if not hmac.compare_digest(hashlib.sha256(context_bytes).hexdigest(), intent["context_hash"]):
         raise ValueError("pending intent context hash")
     context = json.loads(context_bytes.decode("utf-8"))
+    revalidate_task_context(context_path, home)
+    expected_brief = effective_brief(
+        {
+            "task_id": intent["task_id"],
+            "task_context": intent["task_context"],
+            "context_hash": intent["context_hash"],
+            "delegated_agent": intent["delegated_agent"],
+        },
+        {
+            "agent_type": intent["agent_type"],
+            "task_name": intent["task_name"],
+        },
+        context,
+    )
+    if intent["effective_brief"] != expected_brief or intent["effective_brief_hash"] != canonical_hash(expected_brief):
+        raise ValueError("pending intent effective brief")
     routing = context.get("routing") if isinstance(context, dict) else None
     if (
         context.get("task_id") != intent["task_id"]
@@ -244,8 +360,9 @@ def prepare_delegation_intent(payload: dict[str, Any], home: Path, run_validator
         raise ValueError(reason)
     tool_input = payload["tool_input"]
     headers, _, _ = delegation_headers(tool_input["message"])
+    context = json.loads(Path(headers["task_context"]).read_text(encoding="utf-8"))
     hook_path = (home / "hooks" / "block_reserved_root_agent.py").resolve()
-    brief = effective_brief(headers, tool_input)
+    brief = effective_brief(headers, tool_input, context)
     intent = {
         "schema_version": "1.1",
         "prepared_at": datetime.now(timezone.utc).isoformat(),
@@ -467,6 +584,10 @@ def decision(
     delegation_names = routing.get("delegation_names")
     if not isinstance(delegation_names, dict) or delegation_names.get(headers["delegated_agent"]) != tool_input.get("task_name"):
         return deny("拒绝 Agent 调用：task_name 与 task_context.routing.delegation_names 不一致。")
+    try:
+        playbook_binding = managed_playbook_binding(context, headers["delegated_agent"])
+    except ValueError as exc:
+        return deny(f"拒绝 Agent 调用：{exc}。")
 
     home = codex_home or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
     agent_file = home / "agents" / f"{headers['delegated_agent']}.toml"
@@ -490,6 +611,29 @@ def decision(
         if checked.returncode != 0:
             detail = (checked.stdout or checked.stderr).strip().splitlines()
             return deny("拒绝 Agent 调用：task_context 门禁校验失败。" + (f" {detail[-1]}" if detail else ""))
+        action = playbook_binding.get("delegated_action") if playbook_binding else None
+        if action in REQUIREMENT_GATE_ACTIONS:
+            checked = subprocess.run(
+                [
+                    sys.executable,
+                    str(validator),
+                    "--requirement-gate",
+                    str(context_path),
+                    "--action",
+                    action,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=15,
+                check=False,
+            )
+            if checked.returncode != 0:
+                detail = (checked.stdout or checked.stderr).strip().splitlines()
+                return deny(
+                    "拒绝 Agent 调用：delegated action未通过需求生命周期门禁。"
+                    + (f" {detail[-1]}" if detail else "")
+                )
     if write_proof:
         try:
             write_delegation_proof(payload, tool_input, headers, home)
@@ -505,10 +649,14 @@ def self_test() -> None:
         raise SystemExit("reserved-root denial self-test failed")
     if decision({"tool_input": {"task_name": "review", "message": "missing"}}, run_validator=False) is None:
         raise SystemExit("missing-header denial self-test failed")
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory(prefix="xiaoh 路径 with space ") as directory:
         home = Path(directory)
         (home / "agents").mkdir()
         (home / "hooks").mkdir()
+        (home / "agent-system").mkdir()
+        (home / "agent-system/validate.py").write_text(
+            "raise SystemExit(0)\n", encoding="utf-8"
+        )
         (home / "hooks/block_reserved_root_agent.py").write_bytes(Path(__file__).read_bytes())
         (home / "agents/reviewer.toml").write_text('name = "reviewer"\n', encoding="utf-8")
         context = home / "context.json"
@@ -608,6 +756,76 @@ def self_test() -> None:
                 "turn_id": "turn-5", "agent_id": "agent-3", "agent_type": "reviewer",
             }, home) is not None:
                 raise SystemExit("delegation-intent replay denial self-test failed")
+            config_path = home / "配置 with space.json"
+            config_path.write_text("{}\n", encoding="utf-8")
+            hook_path = home / "hooks/block_reserved_root_agent.py"
+            cli_environment = {
+                **os.environ,
+                "CODEX_HOME": str(home),
+                "CODEX_THREAD_ID": "cli-parent",
+            }
+            cli_input = json.dumps({
+                "tool_input": {
+                    "task_name": "review",
+                    "agent_type": "reviewer",
+                    "message": message,
+                }
+            }, ensure_ascii=False)
+            prepared = subprocess.run(
+                [
+                    sys.executable, str(hook_path), "--config", str(config_path),
+                    "--prepare",
+                ],
+                input=cli_input, text=True, encoding="utf-8", capture_output=True,
+                env=cli_environment, check=False,
+            )
+            if prepared.returncode != 0 or not Path(prepared.stdout.strip()).is_file():
+                raise SystemExit("CLI prepare special-path self-test failed")
+            started = subprocess.run(
+                [
+                    sys.executable, str(hook_path), "--config", str(config_path),
+                    "--subagent-start",
+                ],
+                input=json.dumps({
+                    "hook_event_name": "SubagentStart",
+                    "session_id": "cli-parent",
+                    "turn_id": "cli-turn-1",
+                    "agent_id": "cli-agent",
+                    "agent_type": "reviewer",
+                }),
+                text=True, encoding="utf-8", capture_output=True,
+                env=cli_environment, check=False,
+            )
+            started_payload = json.loads(started.stdout)
+            cli_context = started_payload.get("hookSpecificOutput", {}).get("additionalContext", "")
+            cli_receipts = RECEIPT_PATTERN.findall(cli_context)
+            if started.returncode != 0 or len(cli_receipts) != 1:
+                raise SystemExit("CLI SubagentStart special-path self-test failed")
+            transcript = home / "转录 with space.jsonl"
+            transcript.write_text("{}\n", encoding="utf-8")
+            stopped = subprocess.run(
+                [
+                    sys.executable, str(hook_path), "--config", str(config_path),
+                    "--subagent-stop",
+                ],
+                input=json.dumps({
+                    "hook_event_name": "SubagentStop",
+                    "session_id": "cli-parent",
+                    "turn_id": "cli-turn-2",
+                    "agent_id": "cli-agent",
+                    "agent_type": "reviewer",
+                    "agent_transcript_path": str(transcript),
+                    "last_assistant_message": (
+                        "review complete\nxiaoh-delegation-receipt: "
+                        + cli_receipts[0]
+                    ),
+                    "stop_hook_active": True,
+                }, ensure_ascii=False),
+                text=True, encoding="utf-8", capture_output=True,
+                env=cli_environment, check=False,
+            )
+            if stopped.returncode != 0 or json.loads(stopped.stdout) != {}:
+                raise SystemExit("CLI SubagentStop special-path self-test failed")
             corrupt = prepare_delegation_intent(
                 {"tool_input": {"task_name": "review", "agent_type": "reviewer", "message": message}},
                 home,
@@ -729,24 +947,29 @@ def main() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    if sys.argv[1:] == ["--self-test"]:
+    try:
+        arguments = runtime_arguments(sys.argv[1:])
+    except ValueError as exc:
+        json.dump(deny(f"拒绝 Agent 调用：{exc}。"), sys.stdout, ensure_ascii=False)
+        return
+    if arguments == ["--self-test"]:
         self_test()
         return
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, TypeError):
-        if sys.argv[1:] == ["--subagent-start"]:
+        if arguments == ["--subagent-start"]:
             json.dump(subagent_start_response(
                 unauthorized_subagent_context(), "小H委派Hook输入不是有效JSON。"
             ), sys.stdout, ensure_ascii=False)
             return
-        if sys.argv[1:] == ["--subagent-stop"]:
+        if arguments == ["--subagent-stop"]:
             json.dump({"systemMessage": "小H委派Hook输入不是有效JSON。"}, sys.stdout, ensure_ascii=False)
             return
         json.dump(deny("拒绝 Agent 调用：Hook 输入不是有效 JSON。"), sys.stdout, ensure_ascii=False)
         return
     if not isinstance(payload, dict):
-        if sys.argv[1:] == ["--subagent-start"]:
+        if arguments == ["--subagent-start"]:
             json.dump(subagent_start_response(
                 unauthorized_subagent_context(), "小H委派Hook输入结构无效。"
             ), sys.stdout, ensure_ascii=False)
@@ -754,17 +977,17 @@ def main() -> None:
         json.dump(deny("拒绝 Agent 调用：Hook 输入结构无效。"), sys.stdout, ensure_ascii=False)
         return
     home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
-    if sys.argv[1:] == ["--prepare"]:
+    if arguments == ["--prepare"]:
         try:
             print(prepare_delegation_intent(payload, home))
         except (OSError, ValueError, TypeError, KeyError, UnicodeError, json.JSONDecodeError) as exc:
             print(f"委派意图准备失败：{exc}", file=sys.stderr)
             raise SystemExit(1)
         return
-    if sys.argv[1:] == ["--subagent-start"]:
+    if arguments == ["--subagent-start"]:
         json.dump(handle_subagent_start(payload, home), sys.stdout, ensure_ascii=False)
         return
-    if sys.argv[1:] == ["--subagent-stop"]:
+    if arguments == ["--subagent-stop"]:
         try:
             result = attest_subagent_stop(payload, home)
             json.dump(result or {}, sys.stdout, ensure_ascii=False)

@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.4",
+  "schema_version": "1.5",
   "revision": 1,
   "previous_context": null,
   "task_id": "example-task",
@@ -71,6 +71,7 @@
     "root_agent": "xiaoh",
     "delegated_agents": [],
     "delegation_names": {},
+    "delegated_actions": {},
     "selection_reason": "低风险全局配置核对由协调者直接完成，不需要专业角色",
     "independent_review_required": false,
     "independent_review_agents": []
@@ -78,10 +79,19 @@
   "playbook": {
     "managed": false,
     "workspace_id": null,
+    "xiaoh_workspace_id": null,
+    "task_workspace_id": null,
     "change_id": null,
     "stage": null,
-    "worker_contract_source": null
+    "member": null,
+    "member_worktree": null,
+    "workspace_root": null,
+    "allowed_scope": null,
+    "worker_contract_source": null,
+    "adapter_receipt": null,
+    "adapter_receipt_sha256": null
   },
+  "memory_recall": null,
   "requirements": null,
   "acceptance": [
     "校验器返回明确的通过或失败结果",

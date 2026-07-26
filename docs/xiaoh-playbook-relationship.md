@@ -1,6 +1,6 @@
 # 小H与Playbook的关系
 
-> 适用版本：小H 2.11.0
+> 适用版本：小H 2.14.0
 >
 > 文档定位：说明小H协调层与AI Dev Playbook执行治理平台如何分工、交接和共同约束专业Agent。
 >
@@ -8,10 +8,20 @@
 
 ## 1. 核心关系
 
-小H与Playbook是上下协作关系，不是同一个组件，也不是互相替代：
+小H与Playbook是可选的上下协作关系，不是同一个组件，也不是互相替代。小H核心可以独立安装和使用；只有当前任务明确由Playbook管理时，才进入下面的交接：
 
 - 小H是面向用户的根线程协调层，负责理解目标、核对事实、推荐方案、需求裁决、专业Agent路由、结果验收和长期知识写回。
 - Playbook是面向研发执行的治理平台，负责Workspace、成员仓库、任务状态、OpenSpec、worktree、Git、门禁、验证、Issue/MR和交付闭环。
+
+是否启用由`~/.xiaoh/config.json`中的`integrations.playbook`控制：
+
+| 模式 | 独立使用小H | Playbook受管任务 |
+| --- | --- | --- |
+| `auto`（默认） | 不探测缺失CLI，不降级核心 | 任务明确受管后要求兼容并启用适配 |
+| `enabled` | Doctor主动验证兼容性 | 缺失或不兼容时失败关闭 |
+| `disabled` | 完全跳过Playbook探测 | 禁止受管委派，直到修改配置 |
+
+安装了Playbook命令不等于任务受管，也不会自动加载Playbook门禁。
 
 可以简化为：
 
@@ -81,6 +91,7 @@ sequenceDiagram
     H->>H: 更新业务需求与设计基线
     H->>P: 确认member范围并创建Workspace task
     P-->>H: task state、member、worker contract、worktree
+    H->>H: 生成只读适配凭证并绑定身份、范围和动作
     H->>P: 从已确认总体基线逐仓派生OpenSpec
     H->>H: OpenSpec一致性评审
     H->>U: 确认OpenSpec
@@ -100,7 +111,7 @@ sequenceDiagram
 专业Agent进入Playbook任务后，同时受以下约束：
 
 1. 小H公共契约和角色TOML：规定角色能力、Sandbox、证据格式和全局禁止事项。
-2. 小H schema 1.4任务上下文：规定本轮目标、事实源、意图域、允许范围、验收和停止条件。
+2. 小H schema 1.5任务上下文：规定项目历史召回、本轮目标、事实源、意图域、允许范围、验收和停止条件。
 3. Workspace和仓库`AGENTS.md`：规定项目及仓库专属规则。
 4. Playbook worker/task brief：规定实际member、worktree、allowed scope、依赖、当前阶段和输出契约。
 5. 当前OpenSpec与Git/gate状态：规定要实现和验证的准确范围。
@@ -108,6 +119,20 @@ sequenceDiagram
 这些约束不是覆盖关系，而是取交集。任一层更严格时使用更严格边界；发生冲突时停止副作用，由小H重新对账，不能由专业Agent自行扩大权限。
 
 Playbook已经返回worker/task简报时，它是执行状态的权威事实源。小H任务上下文只补充角色、长期知识路径、输出要求和停止条件，不能复制或覆盖受管状态。
+
+项目历史召回在Playbook交接前由小H独立完成。Playbook的worker/status可以补充当前任务事实，但不能替代配置Vault中的项目进度、已验收收口、规范需求基线和正式知识；没有Playbook时，这条召回门禁仍然照常工作。
+
+小H的可选适配层不改变这项分工。它只在任务明确受管且集成模式允许时读取Playbook现有的worker JSON与完整task status JSON，生成默认15分钟有效的绑定凭证，并在正式委派前校验：
+
+- 小H长期项目身份`xiaoh_workspace_id`与Playbook当前任务身份`task_workspace_id`分别存在。
+- worker的member、worktree和allowed scope与只读状态快照一致。
+- 原始JSON、凭证文件和当前任务上下文哈希未发生变化。
+- 本轮专业Agent只执行凭证绑定的一个delegated action。
+- worker重启、范围变化、任务接管或恢复后已经重新捕获。
+- worker/status原始文件刚刚生成、顺序正确，任务仍为非终态（多member任务允许其他member造成任务级`blocked`），当前member worktree仍有效，且每一项delegated scope均未超出任务上下文授权。
+- 在正式委派准备和SubagentStart消费时重新执行只读task status并核对当前身份、状态和worktree。
+
+适配层不写Playbook、不推进task状态、不生成兼容默认值，也不维护第二套状态机。15分钟时效只约束授权与启动；任务收口按凭证与实际Agent启动时间审计当时是否有效，不要求历史凭证在收口时仍是“现在新鲜”。Playbook接口缺失或语义不兼容时，小H报告检测到的版本并停止受管业务委派，等待后续更新小H适配器。
 
 ## 6. 两套“收口”不是一回事
 
@@ -165,6 +190,8 @@ Playbook收口与小H收口解决不同问题：
 | --- | --- |
 | 小H需求基线与Playbook OpenSpec不一致 | 暂停后续实现，回到已确认业务语义修订工件 |
 | 小H任务上下文与worker brief范围冲突 | 停止副作用，由小H重新生成上下文或修正任务范围 |
+| 小H Playbook适配凭证缺失、过期或来源变化 | 重新读取当前worker/status JSON并生成新凭证；不修改Playbook |
+| Playbook CLI接口不满足适配契约 | 小H保持全局能力可用，停止受管业务委派并等待适配更新 |
 | Playbook状态与实际Git/worktree不一致 | 使用Playbook诊断和受管恢复，不靠自然语言假定状态 |
 | OpenSpec已经存在但漏跑Spec+RFC | 进入`retroactive_normalization`，补齐并评审总体基线 |
 | 业务代码位于base repo或错误worktree | 不修改，切换或创建正确task worktree |

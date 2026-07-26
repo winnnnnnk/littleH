@@ -1,7 +1,7 @@
 {
   "name": "xiaoh",
-  "version": "2.11.0",
-  "description": "Root-thread coordination, governed agent delegation, Workspace-aware project routing, immediate business requirement baselines, task closeout, managed achievement pushes, and a dual-entry development knowledge system for Codex.",
+  "version": "2.14.0",
+  "description": "Standalone root-thread coordination with governed agent delegation, verifiable project-history recall, optional task-scoped integrations, Workspace-aware project routing, immediate requirement baselines, task closeout, managed achievement pushes, and a dual-entry development knowledge system for Codex.",
   "author": {
     "name": "XiaoH Project"
   },
@@ -28,7 +28,9 @@
       "Scheduled task templates",
       "Knowledge promotion",
       "Workspace project routing",
-      "Business requirement baselines"
+      "Verifiable project history recall",
+      "Business requirement baselines",
+      "Optional task-scoped integrations"
     ],
     "defaultPrompt": "\u5c0fH\uff0c\u8bf7\u5206\u6790\u6211\u7684\u76ee\u6807\uff0c\u5e26\u7740\u63a8\u8350\u65b9\u6848\u5411\u6211\u786e\u8ba4\uff0c\u7136\u540e\u6301\u7eed\u63a8\u8fdb\u3002"
   }

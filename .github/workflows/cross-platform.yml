@@ -33,6 +33,7 @@ jobs:
           python -m py_compile \
             plugins/xiaoh/scripts/xiaoh.py \
             plugins/xiaoh/skills/xiaoh-task-closeout/scripts/closeout_key.py \
+            plugins/xiaoh/runtime/codex/agent-system/playbook_adapter.py \
             plugins/xiaoh/runtime/codex/agent-system/validate.py \
             plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py \
             plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py \
@@ -97,6 +98,9 @@ jobs:
         shell: bash
         run: |
           bash -n install.sh verify.sh
+          # This self-test executes the real Python CLI chain
+          # --prepare -> --subagent-start -> --subagent-stop under paths with
+          # spaces and non-ASCII characters.
           python plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py --self-test
           python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test
           set +e
@@ -151,6 +155,9 @@ jobs:
             $output | ForEach-Object { Write-Output ("::error::" + $_) }
             exit $status
           }
+          # This runs the real Python CLI chain under paths with spaces and
+          # non-ASCII characters; see the Hook self-test implementation.
+          python plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py --self-test
           python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test
           $env:CODEX_HOME = Join-Path $PWD ".ci\codex"
           $env:XIAOH_VAULT = Join-Path $PWD ".ci\vault"

@@ -2,7 +2,8 @@
 name: xiaoh-requirement-routing
 description: >-
   Route a business-project request to openspec_only, spec_rfc_then_openspec, or class_skill and
-  determine the required lifecycle gates. Use after initial read-only fact discovery and before final
+  determine the required lifecycle gates. Use after Workspace resolution, project-history recall, and
+  current-fact reconciliation, and before final
   member scope, Playbook task creation, OpenSpec authoring or confirmation, or implementation. Also use
   when the user explicitly requests spec-rfc, when an existing OpenSpec may have skipped an overall
   requirements baseline, or when substantive requirement changes may invalidate OpenSpec consistency.
@@ -13,6 +14,10 @@ description: >-
 Keep routing in the current root thread. Never create or delegate to an Agent named `xiaoh`.
 
 ## Produce one route
+
+Require task-context schema 1.5 with `memory_recall.status=completed`. The recall manifest must match
+the resolved Workspace, contain current fact sources, and record any material history-versus-current
+conflicts. Do not route from daily digests alone or treat recalled Obsidian content as permission.
 
 Return all four fields:
 

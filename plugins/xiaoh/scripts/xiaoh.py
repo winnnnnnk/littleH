@@ -131,6 +131,22 @@ def automation_templates() -> dict[str, dict]:
     return result
 
 
+def integration_mode(local: dict, name: str) -> str:
+    integrations = local.get("integrations", {})
+    if integrations is None:
+        integrations = {}
+    if not isinstance(integrations, dict):
+        raise ValueError("integrations必须是JSON对象")
+    value = integrations.get(name, "auto")
+    if value is True:
+        return "enabled"
+    if value is False:
+        return "disabled"
+    if isinstance(value, str) and value in {"auto", "enabled", "disabled"}:
+        return value
+    raise ValueError(f"integrations.{name}必须是auto、enabled、disabled、true或false")
+
+
 def merged_local_config(local: dict, codex: Path, vault: Path, version: str) -> dict:
     result = dict(local)
     result.update({
@@ -159,6 +175,15 @@ def merged_local_config(local: dict, codex: Path, vault: Path, version: str) -> 
         result["workspaces"] = dict(workspaces)
     else:
         raise ValueError("workspaces必须是JSON对象，拒绝静默覆盖")
+    integrations = result.get("integrations")
+    if integrations is None:
+        integrations = {}
+    elif not isinstance(integrations, dict):
+        raise ValueError("integrations必须是JSON对象，拒绝静默覆盖")
+    else:
+        integrations = dict(integrations)
+    integrations["playbook"] = integration_mode({"integrations": integrations}, "playbook")
+    result["integrations"] = integrations
     return result
 
 
@@ -730,7 +755,7 @@ def companion_report(install_missing: bool = False) -> dict:
                 message += f": {detail['install_error']}"
             if dependency["level"] == "required":
                 errors.append(message)
-            else:
+            elif dependency["level"] == "recommended":
                 warnings.append(message)
         plugins.append(detail)
 
@@ -742,7 +767,7 @@ def companion_report(install_missing: bool = False) -> dict:
             message = f"外部增强能力不可用: {dependency['id']}（{dependency['purpose']}）"
             if dependency["level"] == "required":
                 errors.append(message)
-            else:
+            elif dependency["level"] == "recommended":
                 warnings.append(message)
         external.append(detail)
 
@@ -755,6 +780,42 @@ def companion_report(install_missing: bool = False) -> dict:
         "warnings": list(dict.fromkeys(warnings)),
         "errors": errors,
     }
+
+
+def playbook_adapter_report(local: dict) -> dict:
+    mode = integration_mode(local, "playbook")
+    adapter = RUNTIME / "codex/agent-system/playbook_adapter.py"
+    if not adapter.is_file():
+        return {
+            "status": "missing",
+            "mode": mode,
+            "version": None,
+            "errors": [f"缺少小H Playbook适配器: {adapter}"],
+        }
+    completed = subprocess.run(
+        [sys.executable, str(adapter), "probe", "--mode", mode],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return {
+            "status": "incompatible",
+            "mode": mode,
+            "version": None,
+            "errors": [(completed.stderr or completed.stdout).strip() or "适配器未返回JSON"],
+        }
+    if not isinstance(result, dict):
+        return {
+            "status": "incompatible",
+            "mode": mode,
+            "version": None,
+            "errors": ["适配器返回值不是JSON对象"],
+        }
+    return result
 
 
 def resolve_paths(args: argparse.Namespace) -> tuple[Path, Path, Path]:
@@ -928,7 +989,9 @@ def sync_vault_runtime(vault: Path) -> tuple[list[Path], list[str]]:
     return touched, conflicts
 
 
-def copy_runtime(codex: Path, vault: Path) -> tuple[Path, list[Path], list[str]]:
+def copy_runtime(
+    codex: Path, vault: Path, config_path: Path | None = None
+) -> tuple[Path, list[Path], list[str]]:
     source = RUNTIME / "codex"
     for name in ("agents", "contexts", "agent-system", "hooks"):
         shutil.copytree(source / name, codex / name, dirs_exist_ok=True)
@@ -950,6 +1013,11 @@ def copy_runtime(codex: Path, vault: Path) -> tuple[Path, list[Path], list[str]]
     config = update_agents_section(config)
     hook = (source / "root-agent-hook.toml").read_text(encoding="utf-8")
     hook = hook.replace("__CODEX_HOME__", codex.as_posix())
+    hook = hook.replace("__PYTHON_WINDOWS__", Path(sys.executable).resolve().as_posix())
+    hook = hook.replace(
+        "__XIAOH_CONFIG__",
+        (config_path or default_local_config()).expanduser().resolve().as_posix(),
+    )
     config = merge_config_block(config, hook, "xiaoh-root-agent-hook")
     atomic_write_text(codex_config_path, config.rstrip() + "\n")
     return target_agents, vault_files, vault_conflicts
@@ -977,6 +1045,30 @@ def doctor(
     errors: list[str] = list(companions["errors"])
     warnings: list[str] = []
     local: dict = {}
+    config_error = None
+    try:
+        local = load_json(config_path)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        config_error = exc
+        errors.append(f"小H本地配置无效: {config_path}: {exc}")
+    try:
+        playbook_adapter = playbook_adapter_report(local)
+    except ValueError as exc:
+        playbook_adapter = {
+            "status": "invalid_configuration",
+            "mode": None,
+            "version": None,
+            "errors": [str(exc)],
+        }
+        errors.append(f"小H集成配置无效: {exc}")
+    if (
+        playbook_adapter.get("mode") == "enabled"
+        and playbook_adapter.get("status") != "compatible"
+    ):
+        warnings.extend(
+            "Playbook适配器: " + message
+            for message in playbook_adapter.get("errors", ["当前Playbook接口不兼容"])
+        )
     plugin_version = load_json(PLUGIN_MANIFEST)["version"]
     active_plugin, active_plugin_error = installed_xiaoh_plugin()
     if active_plugin_error:
@@ -1003,19 +1095,21 @@ def doctor(
                 )
         except (OSError, KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError) as exc:
             errors.append(f"无法验证当前线程Skill根目录: {skill_root}: {exc}")
-    try:
-        local = load_json(config_path)
-        configured_vault = Path(local["obsidian_vault"]).expanduser().resolve()
-        installed_version = local["installed_version"]
-        if not isinstance(installed_version, str):
-            raise ValueError("installed_version必须是字符串")
-        if configured_vault != vault:
-            errors.append(f"Vault参数与小H配置不一致: {vault} != {configured_vault}")
-        if installed_version.partition("+codex.")[0] != plugin_version.partition("+codex.")[0]:
-            errors.append(f"小H运行时版本漂移: 已部署 {installed_version}，当前插件 {plugin_version}")
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    if config_error is None:
+        try:
+            configured_vault = Path(local["obsidian_vault"]).expanduser().resolve()
+            installed_version = local["installed_version"]
+            if not isinstance(installed_version, str):
+                raise ValueError("installed_version必须是字符串")
+            if configured_vault != vault:
+                errors.append(f"Vault参数与小H配置不一致: {vault} != {configured_vault}")
+            if installed_version.partition("+codex.")[0] != plugin_version.partition("+codex.")[0]:
+                errors.append(f"小H运行时版本漂移: 已部署 {installed_version}，当前插件 {plugin_version}")
+        except (KeyError, TypeError, ValueError) as exc:
+            installed_version = None
+            errors.append(f"小H本地配置无效: {config_path}: {exc}")
+    else:
         installed_version = None
-        errors.append(f"小H本地配置无效: {config_path}: {exc}")
     automations = automation_report(local, codex)
     warnings.extend(automations["warnings"])
     workspace_registry = workspace_registry_report(local)
@@ -1049,8 +1143,8 @@ def doctor(
             errors.append(f"config.toml 缺少: {expected}")
     for required in (
         codex / "agent-system/validate.py",
+        codex / "agent-system/playbook_adapter.py",
         codex / "hooks/block_reserved_root_agent.py",
-        codex / "hooks/block_reserved_root_agent.ps1",
         codex / "hooks/guard_vault_writes.py",
         vault / "90-个人系统/Agent协作角色.md",
         vault / "90-个人系统/Agent进化台账.md",
@@ -1101,6 +1195,7 @@ def doctor(
         "capabilities": companions,
         "automations": automations,
         "workspace_registry": workspace_registry,
+        "playbook_adapter": playbook_adapter,
         "vault_templates": vault_templates,
         "warnings": list(dict.fromkeys([*companions["warnings"], *warnings])),
         "errors": errors,
@@ -1111,6 +1206,7 @@ def install(args: argparse.Namespace, mode: str) -> dict:
     codex, vault, config_path = resolve_paths(args)
     try:
         local = load_json(config_path, {})
+        integration_mode(local, "playbook")
         workspace_registry = workspace_registry_report(local)
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         return {
@@ -1157,12 +1253,15 @@ def install(args: argparse.Namespace, mode: str) -> dict:
 
     codex.mkdir(parents=True, exist_ok=True)
     vault.mkdir(parents=True, exist_ok=True)
-    target_agents, vault_files, vault_conflicts = copy_runtime(codex, vault)
+    target_agents, vault_files, vault_conflicts = copy_runtime(
+        codex, vault, config_path
+    )
     replace_placeholders(
         [target_agents, codex / "agents", codex / "contexts", codex / "agent-system", codex / "hooks", *vault_files],
         [
             ("__CODEX_HOME__/AGENTS.md", target_agents.as_posix()),
             ("__CODEX_HOME__", codex.as_posix()),
+            ("__XIAOH_CONFIG__", config_path.as_posix()),
             ("__OBSIDIAN_VAULT__", vault.as_posix()),
             ("__USER_HOME__", Path.home().as_posix()),
         ],
@@ -1170,6 +1269,7 @@ def install(args: argparse.Namespace, mode: str) -> dict:
     refresh_templates(codex)
     for executable in (
         codex / "agent-system/validate.py",
+        codex / "agent-system/playbook_adapter.py",
         codex / "hooks/block_reserved_root_agent.py",
         codex / "hooks/guard_vault_writes.py",
         codex / "hooks/verify_agent_hook_runtime.py",

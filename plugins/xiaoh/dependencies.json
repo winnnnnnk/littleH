@@ -10,6 +10,8 @@
     "xiaoh-doctor",
     "xiaoh-knowledge-promotion",
     "xiaoh-knowledge-review",
+    "xiaoh-playbook-adapter",
+    "xiaoh-project-recall",
     "xiaoh-project-progress",
     "xiaoh-requirement-baseline",
     "xiaoh-requirement-routing",
@@ -90,6 +92,13 @@
       "auto_install": false,
       "source": "https://github.com/DeusData/codebase-memory-mcp",
       "purpose": "代码知识图谱、调用链和影响分析"
+    },
+    {
+      "id": "ai-dev-playbook",
+      "level": "optional",
+      "commands": ["playbook"],
+      "auto_install": false,
+      "purpose": "受管Workspace、任务、worker简报和研发交付生命周期"
     }
   ]
 }

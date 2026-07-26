@@ -6,12 +6,21 @@ import ast
 import hashlib
 import json
 import os
+import platform
 import re
 import sys
 import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+
+from playbook_adapter import (
+    ALLOWED_ACTIONS as ALLOWED_DELEGATED_ACTIONS,
+    AdapterError,
+    configured_integration_mode,
+    playbook_probe,
+    validate_receipt,
+)
 
 
 HOME = Path.home()
@@ -22,7 +31,6 @@ OBSIDIAN_VAULT = Path(
 AGENTS_DIR = CODEX / "agents"
 ROOT_AGENT = "xiaoh"
 ROOT_AGENT_HOOK = CODEX / "hooks/block_reserved_root_agent.py"
-ROOT_AGENT_HOOK_WINDOWS = CODEX / "hooks/block_reserved_root_agent.ps1"
 VAULT_WRITE_HOOK = CODEX / "hooks/guard_vault_writes.py"
 HOOK_RUNTIME_VERIFIER = CODEX / "hooks/verify_agent_hook_runtime.py"
 ROLE_CATALOG = OBSIDIAN_VAULT / "90-个人系统/Agent协作角色.md"
@@ -53,6 +61,19 @@ ALLOWED_REQUIREMENT_GATE_ACTIONS = {
     "task_create", "openspec_authoring", "openspec_consistency_review", "openspec_confirmation",
     "task_start", "implementation",
 }
+ALLOWED_RECALL_STATUS = {"pending", "completed", "blocked"}
+ALLOWED_TASK_RELATIONS = {
+    "new", "continuation", "historical_recovery", "similar_reuse",
+}
+ALLOWED_MEMORY_SOURCE_KINDS = {
+    "project_progress", "task_page", "task_closeout", "requirement_baseline",
+    "formal_knowledge", "daily_digest",
+}
+ALLOWED_MEMORY_SOURCE_ROLES = {"navigation", "authority", "evidence"}
+ALLOWED_CURRENT_FACT_KINDS = {
+    "code", "configuration", "spec_rfc", "openspec", "task_state", "runtime_evidence",
+}
+RECALL_MANIFEST_SCHEMA = "xiaoh-project-recall/v1"
 SPEC_RFC_REVIEW_SKILLS = {"spec-rfc-reviewer", "xiaoh:spec-rfc-reviewer"}
 OPENSPEC_REVIEW_SKILLS = {
     "spec-rfc-openspec-consistency-review",
@@ -68,6 +89,8 @@ ABSOLUTE_PATH = re.compile(r"/(?:Users|home|opt|var|srv|workspace)/[^\s'\"`]+")
 RESERVED_AGENT_ALIASES = {"xiaoh", "小h"}
 IMPLEMENTATION_AGENTS = {"java_implementer", "frontend_implementer"}
 MAX_CONTEXT_AGE_HOURS = 24
+PLAYBOOK_BINDING_MAX_AGE_SECONDS = 900
+MAX_RECALL_AGE_HOURS = 24
 
 
 class Report:
@@ -109,6 +132,103 @@ def load_json(path, report):
     except (OSError, json.JSONDecodeError) as exc:
         report.error("{}: {}".format(path, exc))
         return None
+
+
+def configured_xiaoh_path():
+    return Path(
+        os.environ.get("XIAOH_CONFIG", str(HOME / ".xiaoh/config.json"))
+    ).expanduser().resolve(strict=False)
+
+
+def configured_xiaoh_data():
+    config_path = configured_xiaoh_path()
+    value = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("XiaoH config must be a JSON object")
+    return value
+
+
+def configured_vault_path():
+    value = configured_xiaoh_data()
+    vault = value.get("obsidian_vault")
+    if not isinstance(vault, str) or not vault.strip():
+        raise ValueError("XiaoH config lacks obsidian_vault")
+    return Path(vault).expanduser().resolve(strict=False)
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_identity(path):
+    resolved = Path(path).resolve(strict=False)
+    try:
+        metadata = resolved.stat()
+    except OSError:
+        return ("path", os.path.normcase(str(resolved)))
+    return ("file", metadata.st_dev, metadata.st_ino)
+
+
+def resolve_configured_workspace(workspace_path):
+    value = configured_xiaoh_data()
+    registry = value.get("workspaces")
+    if not isinstance(registry, dict):
+        raise ValueError("XiaoH config workspaces must be a JSON object")
+    target = Path(workspace_path).expanduser().resolve(strict=False)
+    current_platform = platform.system().lower()
+    matches = []
+    for workspace_id, entry in registry.items():
+        if not isinstance(workspace_id, str) or not isinstance(entry, dict):
+            continue
+        candidates = []
+        bindings = entry.get("bindings")
+        if isinstance(bindings, list):
+            candidates.extend(
+                binding.get("root")
+                for binding in bindings
+                if isinstance(binding, dict)
+                and isinstance(binding.get("platform"), str)
+                and binding["platform"].lower() == current_platform
+            )
+        else:
+            roots = entry.get("roots")
+            legacy_platform = entry.get("platform", "unknown")
+            if (
+                isinstance(roots, list)
+                and isinstance(legacy_platform, str)
+                and legacy_platform.lower() == current_platform
+            ):
+                candidates.extend(roots)
+        for raw_root in candidates:
+            if not isinstance(raw_root, str) or not raw_root.strip():
+                continue
+            root = Path(raw_root).expanduser().resolve(strict=False)
+            if target == root or path_is_covered(str(target), [str(root)]):
+                matches.append((len(root.parts), workspace_id, entry, root))
+    if not matches:
+        raise ValueError("scope.workspace is not registered in XiaoH config")
+    strongest_length = max(match[0] for match in matches)
+    strongest = [match for match in matches if match[0] == strongest_length]
+    workspace_ids = {match[1] for match in strongest}
+    if len(workspace_ids) != 1:
+        raise ValueError("scope.workspace matches conflicting XiaoH workspace registrations")
+    _, workspace_id, entry, root = strongest[0]
+    project = entry.get("project")
+    system = entry.get("system")
+    if not isinstance(project, str) or not project.strip():
+        raise ValueError("registered XiaoH workspace lacks project")
+    if not isinstance(system, str) or not system.strip():
+        raise ValueError("registered XiaoH workspace lacks system")
+    return {
+        "workspace_id": workspace_id,
+        "project": project,
+        "system": system,
+        "matched_root": str(root),
+    }
 
 
 def require_keys(data, keys, label, report):
@@ -227,6 +347,305 @@ def validate_artifact_review(
             report.error("{}.reviewed_revision must match the current artifact revision".format(label))
         if not isinstance(review["evidence"], str) or not review["evidence"].strip():
             report.error("{}.evidence is required when the review passes".format(label))
+
+
+def validate_recall_manifest(
+    manifest,
+    recall,
+    context,
+    registered_workspace,
+    report,
+    check_paths=True,
+    check_freshness=True,
+):
+    required = [
+        "schema_version", "created_at", "task_id", "workspace_id", "project", "system",
+        "task_relation", "query", "memory_sources", "checked_indexes", "no_relevant_history_reason",
+        "current_fact_sources", "current_fact_scope", "material_conflicts",
+        "unresolved", "recommended_baseline",
+    ]
+    if not require_keys(manifest, required, "memory recall manifest", report):
+        return
+    if manifest["schema_version"] != RECALL_MANIFEST_SCHEMA:
+        report.error("memory recall manifest schema_version must be {}".format(RECALL_MANIFEST_SCHEMA))
+    for key in ("task_id", "workspace_id", "project", "system", "current_fact_scope", "recommended_baseline"):
+        if not isinstance(manifest[key], str) or not manifest[key].strip():
+            report.error("memory recall manifest {} must be a non-empty string".format(key))
+    if manifest["task_id"] != context.get("task_id"):
+        report.error("memory recall manifest task_id does not match task context")
+    if manifest["workspace_id"] != recall.get("workspace_id"):
+        report.error("memory recall manifest workspace_id does not match task context")
+    if registered_workspace:
+        for key in ("workspace_id", "project", "system"):
+            if manifest.get(key) != registered_workspace.get(key):
+                report.error(
+                    "memory recall manifest {} does not match configured Workspace".format(key)
+                )
+    if manifest["task_relation"] != recall.get("task_relation"):
+        report.error("memory recall manifest task_relation does not match task context")
+    if manifest["task_relation"] not in ALLOWED_TASK_RELATIONS:
+        report.error("memory recall manifest task_relation must be one of {}".format(sorted(ALLOWED_TASK_RELATIONS)))
+    created_at = parse_timestamp(manifest["created_at"], "memory recall manifest created_at", report)
+    if manifest["created_at"] != recall.get("completed_at"):
+        report.error("memory recall completed_at must equal manifest created_at")
+    if check_freshness and created_at:
+        age = (datetime.now(timezone.utc) - created_at).total_seconds()
+        if age < -300 or age > MAX_RECALL_AGE_HOURS * 3600:
+            report.error("memory recall manifest is stale or from the future")
+
+    query = manifest["query"]
+    if require_keys(query, ["summary", "topics", "task_ids", "keywords"], "memory recall query", report):
+        if not isinstance(query["summary"], str) or not query["summary"].strip():
+            report.error("memory recall query.summary must be a non-empty string")
+        for key in ("topics", "task_ids", "keywords"):
+            validate_string_list(query[key], "memory recall query.{}".format(key), report)
+        if not any(query[key] for key in ("topics", "task_ids", "keywords")):
+            report.error("memory recall query requires at least one topic, task_id, or keyword")
+
+    memory_sources = manifest["memory_sources"]
+    if not isinstance(memory_sources, list):
+        report.error("memory recall manifest memory_sources must be a list")
+        memory_sources = []
+    vault = None
+    if check_paths:
+        try:
+            vault = configured_vault_path()
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+            report.error("cannot resolve configured Vault for memory recall: {}".format(exc))
+        if vault is not None and not (vault / ".obsidian").is_dir():
+            report.error("configured Vault for memory recall lacks .obsidian marker")
+    memory_paths = set()
+    authoritative_history = False
+    for index, source in enumerate(memory_sources):
+        label = "memory recall manifest memory_sources[{}]".format(index)
+        if not require_keys(
+            source, ["kind", "path", "sha256", "role", "point_ids", "relevance"],
+            label, report,
+        ):
+            continue
+        if source["kind"] not in ALLOWED_MEMORY_SOURCE_KINDS:
+            report.error("{}.kind must be one of {}".format(label, sorted(ALLOWED_MEMORY_SOURCE_KINDS)))
+        if source["role"] not in ALLOWED_MEMORY_SOURCE_ROLES:
+            report.error("{}.role must be one of {}".format(label, sorted(ALLOWED_MEMORY_SOURCE_ROLES)))
+        if source["kind"] == "daily_digest" and source["role"] != "navigation":
+            report.error("daily_digest memory sources must use role=navigation")
+        validate_string_list(
+            source["point_ids"],
+            "{}.point_ids".format(label),
+            report,
+            non_empty=(
+                source["kind"] == "requirement_baseline"
+                and source["role"] in {"authority", "evidence"}
+            ),
+        )
+        if not re.fullmatch(r"[0-9a-f]{64}", str(source["sha256"])):
+            report.error("{}.sha256 must be a lowercase SHA-256 digest".format(label))
+        if not isinstance(source["relevance"], str) or not source["relevance"].strip():
+            report.error("{}.relevance must be a non-empty string".format(label))
+        raw_path = source["path"]
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            report.error("{}.path must be a non-empty absolute path".format(label))
+        else:
+            path = Path(raw_path).expanduser()
+            if not path.is_absolute():
+                report.error("{}.path must be absolute".format(label))
+            else:
+                resolved = path.resolve(strict=False)
+                identity = file_identity(resolved)
+                if identity in memory_paths:
+                    report.error("memory recall manifest memory_sources contains duplicate file identities")
+                memory_paths.add(identity)
+                if (
+                    source["kind"] != "daily_digest"
+                    and source["role"] in {"authority", "evidence"}
+                ):
+                    authoritative_history = True
+            if path.is_absolute() and check_paths:
+                resolved = path.resolve(strict=False)
+                if vault is not None and not path_is_covered(str(resolved), [str(vault)]):
+                    report.error("{}.path is outside the configured Vault".format(label))
+                elif not resolved.is_file():
+                    report.error("{}.path does not exist".format(label))
+                elif file_sha256(resolved) != source["sha256"]:
+                    report.error("{}.sha256 does not match path".format(label))
+
+    checked_indexes = manifest["checked_indexes"]
+    if not isinstance(checked_indexes, list):
+        report.error("memory recall manifest checked_indexes must be a list")
+        checked_indexes = []
+    checked_index_paths = set()
+    for index, source in enumerate(checked_indexes):
+        label = "memory recall manifest checked_indexes[{}]".format(index)
+        if not require_keys(source, ["path", "sha256", "relevance"], label, report):
+            continue
+        if not re.fullmatch(r"[0-9a-f]{64}", str(source["sha256"])):
+            report.error("{}.sha256 must be a lowercase SHA-256 digest".format(label))
+        if not isinstance(source["relevance"], str) or not source["relevance"].strip():
+            report.error("{}.relevance must be a non-empty string".format(label))
+        raw_path = source["path"]
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            report.error("{}.path must be a non-empty absolute path".format(label))
+            continue
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            report.error("{}.path must be absolute".format(label))
+            continue
+        resolved = path.resolve(strict=False)
+        identity = file_identity(resolved)
+        if identity in checked_index_paths:
+            report.error("memory recall manifest checked_indexes contains duplicate file identities")
+        if identity in memory_paths:
+            report.error("memory recall manifest reuses a file identity across history and checked indexes")
+        checked_index_paths.add(identity)
+        if check_paths:
+            if vault is not None and not path_is_covered(str(resolved), [str(vault)]):
+                report.error("{}.path is outside the configured Vault".format(label))
+            elif not resolved.is_file():
+                report.error("{}.path does not exist".format(label))
+            elif file_sha256(resolved) != source["sha256"]:
+                report.error("{}.sha256 does not match path".format(label))
+
+    reason = manifest["no_relevant_history_reason"]
+    if reason is not None and (not isinstance(reason, str) or not reason.strip()):
+        report.error("no_relevant_history_reason must be null or a non-empty string")
+    if not memory_sources and not isinstance(reason, str):
+        report.error("empty memory_sources requires no_relevant_history_reason")
+    if not memory_sources and not checked_indexes:
+        report.error("empty memory_sources requires at least one checked index")
+    if memory_sources and reason is not None:
+        report.error("no_relevant_history_reason must be null when memory_sources are present")
+    if memory_sources and not authoritative_history:
+        report.error("recalled project history requires a distinct non-digest authority or evidence source")
+
+    current_sources = manifest["current_fact_sources"]
+    if not isinstance(current_sources, list):
+        report.error("memory recall manifest current_fact_sources must be a list")
+        current_sources = []
+    elif not current_sources:
+        report.error("memory recall manifest current_fact_sources must not be empty")
+    for index, source in enumerate(current_sources):
+        label = "memory recall manifest current_fact_sources[{}]".format(index)
+        if not require_keys(source, ["kind", "path", "sha256", "relevance"], label, report):
+            continue
+        if source["kind"] not in ALLOWED_CURRENT_FACT_KINDS:
+            report.error("{}.kind must be one of {}".format(label, sorted(ALLOWED_CURRENT_FACT_KINDS)))
+        if not isinstance(source["relevance"], str) or not source["relevance"].strip():
+            report.error("{}.relevance must be a non-empty string".format(label))
+        if not re.fullmatch(r"[0-9a-f]{64}", str(source["sha256"])):
+            report.error("{}.sha256 must be a lowercase SHA-256 digest".format(label))
+        raw_path = source["path"]
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            report.error("{}.path must be a non-empty absolute path".format(label))
+        else:
+            path = Path(raw_path).expanduser()
+            if not path.is_absolute():
+                report.error("{}.path must be absolute".format(label))
+            elif check_paths:
+                resolved = path.resolve(strict=False)
+                allowed_paths = context.get("scope", {}).get("allowed_paths", [])
+                if not any(
+                    isinstance(allowed, str)
+                    and path_is_covered(str(resolved), [allowed])
+                    for allowed in allowed_paths
+                ):
+                    report.error("{}.path is outside task scope.allowed_paths".format(label))
+                elif not resolved.is_file():
+                    report.error("{}.path does not exist".format(label))
+                elif file_sha256(resolved) != source["sha256"]:
+                    report.error("{}.sha256 does not match path".format(label))
+    validate_string_list(manifest["material_conflicts"], "memory recall manifest material_conflicts", report)
+    validate_string_list(manifest["unresolved"], "memory recall manifest unresolved", report)
+
+
+def validate_memory_recall(
+    recall,
+    context,
+    report,
+    check_paths=True,
+    check_freshness=True,
+    require_completed=False,
+):
+    required = [
+        "status", "workspace_id", "task_relation", "manifest_path",
+        "manifest_sha256", "completed_at",
+    ]
+    if not require_keys(recall, required, "memory_recall", report):
+        return
+    if recall["status"] not in ALLOWED_RECALL_STATUS:
+        report.error("memory_recall.status must be one of {}".format(sorted(ALLOWED_RECALL_STATUS)))
+    if require_completed and recall["status"] != "completed":
+        report.error("project memory recall must be completed before this action")
+    if recall["task_relation"] not in ALLOWED_TASK_RELATIONS:
+        report.error("memory_recall.task_relation must be one of {}".format(sorted(ALLOWED_TASK_RELATIONS)))
+    if not isinstance(recall["workspace_id"], str) or not recall["workspace_id"].strip():
+        report.error("memory_recall.workspace_id must be a non-empty string")
+    registered_workspace = None
+    if check_paths:
+        try:
+            registered_workspace = resolve_configured_workspace(
+                context.get("scope", {}).get("workspace")
+            )
+        except (OSError, RuntimeError, TypeError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+            report.error("cannot resolve configured Workspace for memory recall: {}".format(exc))
+        else:
+            if recall["workspace_id"] != registered_workspace["workspace_id"]:
+                report.error("memory_recall.workspace_id does not match configured Workspace")
+    playbook = context.get("playbook", {})
+    if isinstance(playbook, dict) and playbook.get("managed"):
+        xiaoh_workspace_id = playbook.get("xiaoh_workspace_id")
+        if isinstance(xiaoh_workspace_id, str) and recall["workspace_id"] != xiaoh_workspace_id:
+            report.error("memory_recall.workspace_id does not match playbook.xiaoh_workspace_id")
+    completed = recall["status"] == "completed"
+    for key in ("manifest_path", "manifest_sha256", "completed_at"):
+        value = recall[key]
+        if completed and (not isinstance(value, str) or not value.strip()):
+            report.error("completed memory_recall requires {}".format(key))
+        if not completed and value is not None:
+            report.error("non-completed memory_recall must use null {}".format(key))
+    if not completed:
+        return
+    manifest_path = Path(recall["manifest_path"]).expanduser()
+    if not manifest_path.is_absolute():
+        report.error("memory_recall.manifest_path must be absolute")
+        return
+    if not re.fullmatch(r"[0-9a-f]{64}", recall["manifest_sha256"]):
+        report.error("memory_recall.manifest_sha256 must be a lowercase SHA-256 digest")
+        return
+    parse_timestamp(recall["completed_at"], "memory_recall.completed_at", report)
+    if not check_paths:
+        return
+    if context.get("playbook", {}).get("managed"):
+        manifest_roots = context.get("scope", {}).get("allowed_paths", [])
+    else:
+        manifest_roots = [str(configured_xiaoh_path().parent / "evidence/recall")]
+    if not any(
+        isinstance(root, str)
+        and path_is_covered(str(manifest_path.resolve(strict=False)), [root])
+        for root in manifest_roots
+    ):
+        report.error("memory_recall.manifest_path is outside the authorized evidence directory")
+        return
+    if not manifest_path.is_file():
+        report.error("memory_recall.manifest_path does not exist: {}".format(manifest_path))
+        return
+    payload = manifest_path.read_bytes()
+    if hashlib.sha256(payload).hexdigest() != recall["manifest_sha256"]:
+        report.error("memory_recall.manifest_sha256 does not match manifest_path")
+        return
+    try:
+        manifest = json.loads(payload.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        report.error("memory_recall.manifest_path is not valid UTF-8 JSON: {}".format(exc))
+        return
+    validate_recall_manifest(
+        manifest,
+        recall,
+        context,
+        registered_workspace,
+        report,
+        check_paths=check_paths,
+        check_freshness=check_freshness,
+    )
 
 
 def validate_requirements(requirements, report):
@@ -382,17 +801,27 @@ def validate_requirements(requirements, report):
         report.error("spec_rfc_then_openspec cannot use requirements.spec_rfc.status=not_required")
 
 
-def validate_requirement_gate(context, action, report):
+def validate_requirement_gate(context, action, report, check_paths=True):
     if action not in ALLOWED_REQUIREMENT_GATE_ACTIONS:
         report.error("requirement gate action must be one of {}".format(sorted(ALLOWED_REQUIREMENT_GATE_ACTIONS)))
         return
-    if action != "readonly_analysis" and context.get("schema_version") != "1.4":
-        report.error("new requirement lifecycle actions require schema 1.4 interaction evidence")
+    if action != "readonly_analysis" and context.get("schema_version") != "1.5":
+        report.error("new requirement lifecycle actions require schema 1.5 project memory recall and interaction evidence")
     validate_interaction_gate(context, action, report)
     intent = context.get("intent", {})
     if intent.get("domain") != "business_project":
         report.error("requirement lifecycle gates apply only to business_project contexts")
         return
+    if context.get("schema_version") == "1.5":
+        validate_memory_recall(
+            context.get("memory_recall"),
+            context,
+            report,
+            check_paths=check_paths,
+            require_completed=action != "readonly_analysis",
+        )
+    if action == "implementation" and context.get("playbook", {}).get("managed"):
+        validate_playbook_binding(context, report, check_paths=True, require_binding=True)
     requirements = context.get("requirements")
     if not isinstance(requirements, dict):
         report.error("business_project requirement gate requires requirements state")
@@ -434,6 +863,17 @@ def validate_requirement_gate(context, action, report):
             record = records.get(name, {})
             if record.get("status") != "completed" or record.get("validation_status") != "passed" or not record.get("evidence"):
                 report.error("explicitly requested Skill {} lacks completed and validated execution evidence".format(name))
+
+
+def example_memory_recall():
+    return {
+        "status": "completed",
+        "workspace_id": "workspace-1",
+        "task_relation": "new",
+        "manifest_path": "/tmp/xiaoh-project-recall.json",
+        "manifest_sha256": "0" * 64,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def example_requirements():
@@ -500,6 +940,73 @@ def closure_rejection_reasons(record, reviewer_agents=None):
         if not any(item.get("name") == "independent_review" and item.get("status") == "passed" for item in gates or [] if isinstance(item, dict)):
             reasons.append("independent reviewer must pass the independent_review gate")
     return reasons
+
+
+def expected_effective_brief(context, task_context, context_hash, agent, agent_type, task_name):
+    brief = {
+        "schema_version": "1.0",
+        "task_id": context.get("task_id"),
+        "task_context": str(task_context),
+        "context_hash": context_hash,
+        "delegated_agent": agent,
+        "agent_type": agent_type,
+        "task_name": task_name,
+        "authority": "task_context_is_authoritative",
+    }
+    playbook = context.get("playbook", {})
+    routing = context.get("routing", {})
+    if (
+        context.get("intent", {}).get("domain") == "business_project"
+        and isinstance(playbook, dict)
+        and playbook.get("managed")
+        and playbook.get("adapter_receipt")
+    ):
+        brief.update({
+            "schema_version": "1.1",
+            "authority": "task_context_and_playbook_adapter_receipt",
+            "delegated_action": routing.get("delegated_actions", {}).get(agent),
+            "playbook_adapter_receipt": playbook.get("adapter_receipt"),
+            "playbook_adapter_receipt_sha256": playbook.get("adapter_receipt_sha256"),
+            "playbook_task_workspace_id": playbook.get("task_workspace_id"),
+            "playbook_member": playbook.get("member"),
+            "playbook_member_worktree": playbook.get("member_worktree"),
+            "playbook_workspace_root": playbook.get("workspace_root"),
+            "playbook_allowed_scope": playbook.get("allowed_scope"),
+        })
+    return brief
+
+
+def validate_playbook_receipt_at_agent_start(context, proof, report):
+    playbook = context.get("playbook", {})
+    if (
+        context.get("intent", {}).get("domain") != "business_project"
+        or not isinstance(playbook, dict)
+        or not playbook.get("managed")
+    ):
+        return
+    try:
+        receipt = validate_receipt(
+            Path(playbook["adapter_receipt"]),
+            expected_sha256=playbook["adapter_receipt_sha256"],
+            expected_action=proof.get("effective_brief", {}).get("delegated_action"),
+            max_age_seconds=None,
+            check_live_status=False,
+        )
+    except (AdapterError, OSError, KeyError) as exc:
+        report.error("historical Playbook adapter receipt is invalid: {}".format(exc))
+        return
+    captured_at = parse_timestamp(
+        receipt.get("captured_at"), "Playbook receipt captured_at", report
+    )
+    started_at = parse_timestamp(
+        proof.get("started_at"), "delegation proof started_at", report
+    )
+    if captured_at and started_at:
+        age_at_start = (started_at - captured_at).total_seconds()
+        if age_at_start < -300 or age_at_start > PLAYBOOK_BINDING_MAX_AGE_SECONDS:
+            report.error(
+                "Playbook adapter receipt was not fresh when the Agent started"
+            )
 
 
 def validate_attested_binding(proof, expected_brief, transcript_path, report):
@@ -614,22 +1121,21 @@ def validate_delegation_proof(runtime_evidence, data, context, context_path, rep
             if not isinstance(proof[key], str) or not proof[key].strip():
                 report.error("delegation proof {} must be a non-empty string".format(key))
         expected["agent_id"] = runtime_evidence["agent_id"]
-        expected_brief = {
-            "schema_version": "1.0",
-            "task_id": data.get("task_id"),
-            "task_context": str(context_path.resolve(strict=False)),
-            "context_hash": data.get("context_hash"),
-            "delegated_agent": data.get("agent"),
-            "agent_type": runtime_evidence["agent_type"],
-            "task_name": runtime_evidence["task_name"],
-            "authority": "task_context_is_authoritative",
-        }
+        expected_brief = expected_effective_brief(
+            context,
+            context_path.resolve(strict=False),
+            data.get("context_hash"),
+            data.get("agent"),
+            runtime_evidence["agent_type"],
+            runtime_evidence["task_name"],
+        )
         validate_attested_binding(proof, expected_brief, runtime_evidence["transcript_path"], report)
+        validate_playbook_receipt_at_agent_start(context, proof, report)
     for key, value in expected.items():
         if proof.get(key) != value:
             report.error("delegation proof {} does not match the run/context binding".format(key))
     hook_path = Path(str(proof["hook_path"])).resolve(strict=False)
-    allowed_hooks = {ROOT_AGENT_HOOK.resolve(strict=False), ROOT_AGENT_HOOK_WINDOWS.resolve(strict=False)}
+    allowed_hooks = {ROOT_AGENT_HOOK.resolve(strict=False)}
     if hook_path not in allowed_hooks:
         report.error("delegation proof hook_path is not an installed delegation Hook")
     elif not hook_path.is_file():
@@ -753,7 +1259,146 @@ def validate_interaction_gate(context, action, report):
             report.error("high-risk {} requires passed independent review before {}".format(key, action))
 
 
-def validate_task_context(data, report, check_paths=True, check_freshness=True):
+def playbook_binding_required_fields(playbook):
+    return (
+        "xiaoh_workspace_id",
+        "task_workspace_id",
+        "member",
+        "member_worktree",
+        "workspace_root",
+        "adapter_receipt",
+        "adapter_receipt_sha256",
+    )
+
+
+def validate_playbook_binding(
+    context,
+    report,
+    check_paths=True,
+    require_binding=False,
+    check_freshness=True,
+    check_live_status=True,
+):
+    playbook = context.get("playbook")
+    routing = context.get("routing")
+    if not isinstance(playbook, dict) or not playbook.get("managed"):
+        return None
+    if check_freshness:
+        try:
+            mode = configured_integration_mode()
+        except AdapterError as exc:
+            report.error("invalid XiaoH integration configuration: {}".format(exc))
+            return None
+        if mode == "disabled":
+            report.error(
+                "managed Playbook context is forbidden because integrations.playbook is disabled"
+            )
+            return None
+    missing = [
+        key for key in playbook_binding_required_fields(playbook)
+        if not isinstance(playbook.get(key), str) or not playbook[key].strip()
+    ]
+    delegated_actions = routing.get("delegated_actions") if isinstance(routing, dict) else None
+    if not isinstance(delegated_actions, dict):
+        missing.append("routing.delegated_actions")
+    if missing:
+        message = (
+            "managed Playbook context lacks XiaoH adapter binding: "
+            + ", ".join(sorted(set(missing)))
+        )
+        if require_binding:
+            report.error(message)
+        else:
+            report.warn(message + "; legacy context is read-only")
+        return None
+    delegated_agents = routing.get("delegated_agents", [])
+    if set(delegated_actions) != set(delegated_agents):
+        report.error("routing.delegated_actions keys must equal delegated_agents")
+    invalid_actions = {
+        value for value in delegated_actions.values()
+        if not isinstance(value, str) or value not in ALLOWED_DELEGATED_ACTIONS
+    }
+    if invalid_actions:
+        report.error(
+            "routing.delegated_actions contains unsupported actions: "
+            + ", ".join(sorted(str(value) for value in invalid_actions))
+        )
+    actions = set(delegated_actions.values())
+    if len(actions) != 1:
+        report.error("one Playbook adapter receipt can bind exactly one delegated action")
+    if playbook.get("workspace_id") != playbook.get("task_workspace_id"):
+        report.error("playbook.workspace_id legacy alias must equal playbook.task_workspace_id")
+    receipt_path = Path(playbook["adapter_receipt"]).expanduser()
+    if not receipt_path.is_absolute():
+        report.error("playbook.adapter_receipt must be an absolute path")
+        return None
+    if not re.fullmatch(r"[0-9a-f]{64}", playbook["adapter_receipt_sha256"]):
+        report.error("playbook.adapter_receipt_sha256 must be a lowercase SHA-256 digest")
+        return None
+    if not check_paths:
+        return None
+    try:
+        receipt = validate_receipt(
+            receipt_path,
+            expected_sha256=playbook["adapter_receipt_sha256"],
+            expected_action=next(iter(actions)) if len(actions) == 1 else None,
+            max_age_seconds=PLAYBOOK_BINDING_MAX_AGE_SECONDS if check_freshness else None,
+            check_live_status=check_live_status,
+        )
+    except (AdapterError, OSError) as exc:
+        report.error("invalid XiaoH Playbook adapter receipt: {}".format(exc))
+        return None
+    if check_freshness:
+        probe = playbook_probe(receipt["playbook"]["command"], mode)
+        if probe.get("status") != "compatible":
+            report.error(
+                "managed Playbook delegation requires a compatible adapter probe: "
+                + "; ".join(probe.get("errors") or [str(probe.get("status"))])
+            )
+            return None
+    receipt_playbook = receipt["playbook"]
+    comparisons = {
+        "xiaoh_workspace_id": receipt["xiaoh_workspace_id"],
+        "task_workspace_id": receipt_playbook["task_workspace_id"],
+        "change_id": receipt_playbook["change_id"],
+        "member": receipt_playbook["member"],
+        "member_worktree": receipt_playbook["member_worktree"],
+        "workspace_root": receipt_playbook["workspace_root"],
+        "worker_contract_source": receipt_playbook["worker_contract_source"],
+    }
+    for key, expected in comparisons.items():
+        if playbook.get(key) != expected:
+            report.error("playbook.{} does not match adapter receipt".format(key))
+    if playbook.get("allowed_scope") != receipt_playbook["allowed_scope"]:
+        report.error("playbook.allowed_scope does not match adapter receipt")
+    allowed_paths = context.get("scope", {}).get("allowed_paths", [])
+    member_worktree = receipt_playbook["member_worktree"]
+    if isinstance(allowed_paths, list) and not any(
+        isinstance(path, str) and path_is_covered(member_worktree, [path])
+        for path in allowed_paths
+    ):
+        report.error("Playbook member_worktree is not covered by scope.allowed_paths")
+    for delegated_path in receipt_playbook["allowed_scope"]:
+        if not any(
+            isinstance(path, str) and path_is_covered(delegated_path, [path])
+            for path in allowed_paths
+        ):
+            report.error(
+                "Playbook allowed_scope is not covered by scope.allowed_paths: {}".format(
+                    delegated_path
+                )
+            )
+    return receipt
+
+
+def validate_task_context(
+    data,
+    report,
+    check_paths=True,
+    check_freshness=True,
+    check_playbook_freshness=True,
+    check_playbook_live_status=True,
+):
     required = [
         "schema_version", "task_id", "task_type", "risk_level", "goal", "behavior",
         "scope", "sources", "confirmed_decisions", "routing", "playbook", "acceptance",
@@ -761,17 +1406,31 @@ def validate_task_context(data, report, check_paths=True, check_freshness=True):
     ]
     if not require_keys(data, required, "task context", report):
         return
-    if data["schema_version"] not in {"1.2", "1.3", "1.4"}:
-        report.error("task context schema_version must be 1.2, 1.3, or 1.4")
-    if data["schema_version"] in {"1.3", "1.4"}:
+    if data["schema_version"] not in {"1.2", "1.3", "1.4", "1.5"}:
+        report.error("task context schema_version must be 1.2, 1.3, 1.4, or 1.5")
+    if data["schema_version"] in {"1.3", "1.4", "1.5"}:
         validate_intent(data.get("intent"), data, report)
         domain = data.get("intent", {}).get("domain") if isinstance(data.get("intent"), dict) else None
         if domain == "business_project":
             validate_requirements(data.get("requirements"), report)
         elif data.get("requirements") is not None:
             report.error("requirements must be null outside business_project contexts")
-    if data["schema_version"] == "1.4":
+    if data["schema_version"] in {"1.4", "1.5"}:
         validate_interaction(data.get("interaction"), report)
+    if data["schema_version"] == "1.5":
+        domain = data.get("intent", {}).get("domain") if isinstance(data.get("intent"), dict) else None
+        if domain == "business_project":
+            delegated = data.get("routing", {}).get("delegated_agents", [])
+            validate_memory_recall(
+                data.get("memory_recall"),
+                data,
+                report,
+                check_paths=check_paths,
+                check_freshness=check_freshness,
+                require_completed=bool(delegated),
+            )
+        elif data.get("memory_recall") is not None:
+            report.error("memory_recall must be null outside business_project contexts")
     revision = data["revision"]
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         report.error("revision must be a positive integer")
@@ -842,6 +1501,8 @@ def validate_task_context(data, report, check_paths=True, check_freshness=True):
         if root_agent != ROOT_AGENT:
             report.error("routing.root_agent must be {}".format(ROOT_AGENT))
         selected = validate_string_list(selected, "routing.delegated_agents", report)
+        if data.get("schema_version") != "1.5" and selected:
+            report.error("formal delegation requires schema 1.5")
         if not isinstance(delegation_names, dict):
             report.error("routing.delegation_names must be an object")
             delegation_names = {}
@@ -871,6 +1532,14 @@ def validate_task_context(data, report, check_paths=True, check_freshness=True):
         if data["routing"]["independent_review_required"] and not reviewers:
             report.error("independent review requires at least one reviewer")
     require_keys(data["playbook"], ["managed", "workspace_id", "change_id", "stage", "worker_contract_source"], "playbook", report)
+    validate_playbook_binding(
+        data,
+        report,
+        check_paths=check_paths,
+        require_binding=False,
+        check_freshness=check_playbook_freshness,
+        check_live_status=check_playbook_live_status,
+    )
     if require_keys(data["output_contract"], ["format", "required_fields"], "output_contract", report):
         if not isinstance(data["output_contract"]["format"], str) or not data["output_contract"]["format"].strip():
             report.error("output_contract.format must be a non-empty string")
@@ -1545,7 +2214,7 @@ def validate_global(report):
         instructions, CODEX / "config.toml", CODEX / "contexts/INDEX.md",
         ROLE_CATALOG, EVOLUTION_LEDGER, SYSTEM_DIR / "task-context.template.json",
         SYSTEM_DIR / "run-record.template.json", ROUTING_CASES, EVOLUTION_POLICY, AGENT_STAGES,
-        ROOT_AGENT_HOOK, ROOT_AGENT_HOOK_WINDOWS, VAULT_WRITE_HOOK, HOOK_RUNTIME_VERIFIER,
+        ROOT_AGENT_HOOK, SYSTEM_DIR / "playbook_adapter.py", VAULT_WRITE_HOOK, HOOK_RUNTIME_VERIFIER,
     ]
     for path in required_paths:
         if not path.exists():
@@ -1644,15 +2313,51 @@ def validate_global(report):
         elif not re.search(r'^matcher\s*=\s*[\"\']\^\(Agent\|spawn_agent\)\$[\"\']\s*$', hook_block.group(0), re.M):
             report.error("xiaoh root-agent hook must match Agent and spawn_agent tool calls")
         else:
+            configured_paths = re.findall(
+                r'--config\s+"([^"]+)"', hook_block.group(0)
+            )
+            unique_config_paths = set(configured_paths)
+            if len(configured_paths) != 8 or len(unique_config_paths) != 1:
+                report.error(
+                    "xiaoh hooks must bind one identical local config path in all POSIX and Windows commands"
+                )
+                runtime_config = Path("__invalid_xiaoh_config__")
+            else:
+                runtime_config = Path(next(iter(unique_config_paths))).expanduser()
+                if not runtime_config.is_absolute():
+                    report.error("xiaoh hook config path must be absolute")
+            config_argument = ' --config "{}"'.format(runtime_config.as_posix())
             expected_commands = [
-                'command = \'python3 "{}"\''.format(ROOT_AGENT_HOOK.as_posix()),
-                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}"\''.format(ROOT_AGENT_HOOK_WINDOWS.as_posix()),
-                'command = \'python3 "{}" --subagent-start\''.format(ROOT_AGENT_HOOK.as_posix()),
-                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}" -SubagentStart\''.format(ROOT_AGENT_HOOK_WINDOWS.as_posix()),
-                'command = \'python3 "{}" --subagent-stop\''.format(ROOT_AGENT_HOOK.as_posix()),
-                'command_windows = \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{}" -SubagentStop\''.format(ROOT_AGENT_HOOK_WINDOWS.as_posix()),
-                'command = \'python3 "{}"\''.format(VAULT_WRITE_HOOK.as_posix()),
-                'command_windows = \'py -3 "{}"\''.format(VAULT_WRITE_HOOK.as_posix()),
+                'command = \'python3 "{}"{}\''.format(
+                    ROOT_AGENT_HOOK.as_posix(), config_argument
+                ),
+                'command_windows = \'"{}" "{}"{}\''.format(
+                    Path(sys.executable).resolve().as_posix(),
+                    ROOT_AGENT_HOOK.as_posix(),
+                    config_argument,
+                ),
+                'command = \'python3 "{}"{} --subagent-start\''.format(
+                    ROOT_AGENT_HOOK.as_posix(), config_argument
+                ),
+                'command_windows = \'"{}" "{}"{} --subagent-start\''.format(
+                    Path(sys.executable).resolve().as_posix(),
+                    ROOT_AGENT_HOOK.as_posix(),
+                    config_argument,
+                ),
+                'command = \'python3 "{}"{} --subagent-stop\''.format(
+                    ROOT_AGENT_HOOK.as_posix(), config_argument
+                ),
+                'command_windows = \'"{}" "{}"{} --subagent-stop\''.format(
+                    Path(sys.executable).resolve().as_posix(),
+                    ROOT_AGENT_HOOK.as_posix(),
+                    config_argument,
+                ),
+                'command = \'python3 "{}"{}\''.format(
+                    VAULT_WRITE_HOOK.as_posix(), config_argument
+                ),
+                'command_windows = \'py -3 "{}"{}\''.format(
+                    VAULT_WRITE_HOOK.as_posix(), config_argument
+                ),
             ]
             for expected in expected_commands:
                 if expected not in hook_block.group(0):
@@ -1697,7 +2402,13 @@ def load_context_chain(context_path, report):
         context = load_json(current_path, report)
         if context is None:
             return []
-        validate_task_context(context, report, check_freshness=not chain)
+        validate_task_context(
+            context,
+            report,
+            check_freshness=not chain,
+            check_playbook_freshness=False,
+            check_playbook_live_status=False,
+        )
         digest = hashlib.sha256(current_path.read_bytes()).hexdigest()
         chain.append((current_path, digest, context))
         previous = context.get("previous_context")
@@ -1884,20 +2595,37 @@ def self_test(report):
             report.error("high-risk scope-reduction review denial self-test failed")
         business_context = json.loads((SYSTEM_DIR / "task-context.template.json").read_text(encoding="utf-8"))
         business_context["intent"]["domain"] = "business_project"
+        business_context["memory_recall"] = example_memory_recall()
         business_context["requirements"] = example_requirements()
         business_report = Report()
         validate_task_context(business_context, business_report, check_paths=False)
-        validate_requirement_gate(business_context, "implementation", business_report)
+        validate_requirement_gate(business_context, "implementation", business_report, check_paths=False)
         if business_report.errors:
             report.error("valid business requirement gate self-test failed")
         legacy_business = json.loads(json.dumps(business_context))
-        legacy_business["schema_version"] = "1.3"
-        legacy_business.pop("interaction")
+        legacy_business["schema_version"] = "1.4"
+        legacy_business.pop("memory_recall")
         legacy_gate_report = Report()
         validate_task_context(legacy_business, legacy_gate_report, check_paths=False)
-        validate_requirement_gate(legacy_business, "task_create", legacy_gate_report)
-        if not any("require schema 1.4" in error for error in legacy_gate_report.errors):
+        validate_requirement_gate(legacy_business, "task_create", legacy_gate_report, check_paths=False)
+        if not any("require schema 1.5" in error for error in legacy_gate_report.errors):
             report.error("legacy lifecycle gate denial self-test failed")
+        pending_recall = json.loads(json.dumps(business_context))
+        pending_recall["memory_recall"] = {
+            "status": "pending",
+            "workspace_id": "workspace-1",
+            "task_relation": "continuation",
+            "manifest_path": None,
+            "manifest_sha256": None,
+            "completed_at": None,
+        }
+        pending_recall_report = Report()
+        validate_task_context(pending_recall, pending_recall_report, check_paths=False)
+        validate_requirement_gate(
+            pending_recall, "artifact_routing", pending_recall_report, check_paths=False
+        )
+        if not any("project memory recall must be completed" in error for error in pending_recall_report.errors):
+            report.error("pending project-memory-recall denial self-test failed")
 
         pending_spec = json.loads(json.dumps(business_context))
         pending_spec["requirements"]["spec_rfc"].update({
@@ -1911,7 +2639,7 @@ def self_test(report):
         })
         pending_report = Report()
         validate_task_context(pending_spec, pending_report, check_paths=False)
-        validate_requirement_gate(pending_spec, "task_create", pending_report)
+        validate_requirement_gate(pending_spec, "task_create", pending_report, check_paths=False)
         if not any("confirmed Spec+RFC is required" in error for error in pending_report.errors):
             report.error("unconfirmed Spec+RFC task-create denial self-test failed")
 
@@ -1925,7 +2653,7 @@ def self_test(report):
             },
         })
         unreviewed_report = Report()
-        validate_requirement_gate(unreviewed_spec, "spec_rfc_confirmation", unreviewed_report)
+        validate_requirement_gate(unreviewed_spec, "spec_rfc_confirmation", unreviewed_report, check_paths=False)
         if not any("quality_review.status must be passed" in error for error in unreviewed_report.errors):
             report.error("Spec+RFC quality-review denial self-test failed")
 
@@ -1953,7 +2681,7 @@ def self_test(report):
         })
         consistency_report = Report()
         validate_task_context(pending_consistency, consistency_report, check_paths=False)
-        validate_requirement_gate(pending_consistency, "openspec_confirmation", consistency_report)
+        validate_requirement_gate(pending_consistency, "openspec_confirmation", consistency_report, check_paths=False)
         if not any("consistency review must pass" in error for error in consistency_report.errors):
             report.error("OpenSpec consistency denial self-test failed")
 
@@ -1970,7 +2698,7 @@ def self_test(report):
         })
         skill_report = Report()
         validate_task_context(incomplete_skill, skill_report, check_paths=False)
-        validate_requirement_gate(incomplete_skill, "member_confirmation", skill_report)
+        validate_requirement_gate(incomplete_skill, "member_confirmation", skill_report, check_paths=False)
         if not any("lacks completed and validated execution evidence" in error for error in skill_report.errors):
             report.error("explicit Skill completion denial self-test failed")
 
@@ -1978,7 +2706,7 @@ def self_test(report):
         retroactive["requirements"]["retroactive_normalization"] = {"required": True, "status": "in_progress"}
         retroactive_report = Report()
         validate_task_context(retroactive, retroactive_report, check_paths=False)
-        validate_requirement_gate(retroactive, "implementation", retroactive_report)
+        validate_requirement_gate(retroactive, "implementation", retroactive_report, check_paths=False)
         if not any("retroactive_normalization must be completed" in error for error in retroactive_report.errors):
             report.error("retroactive normalization denial self-test failed")
 

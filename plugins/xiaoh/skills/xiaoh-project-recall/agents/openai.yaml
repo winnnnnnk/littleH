@@ -1,0 +1,4 @@
+interface:
+  display_name: "小H项目历史召回"
+  short_description: "在业务分析之前定向召回项目基线、任务历史与正式知识"
+  default_prompt: "使用 $xiaoh-project-recall，在继续当前业务任务前读取相关项目历史并生成可验证召回清单。"

@@ -75,10 +75,7 @@ def verify(codex_home: Path, cwd: Path) -> None:
             process.kill()
 
     expected_source = (codex_home / "config.toml").resolve()
-    delegation_scripts = [
-        codex_home / "hooks/block_reserved_root_agent.py",
-        codex_home / "hooks/block_reserved_root_agent.ps1",
-    ]
+    delegation_scripts = [codex_home / "hooks/block_reserved_root_agent.py"]
     vault_scripts = [codex_home / "hooks/guard_vault_writes.py"]
     normalized_scripts = lambda paths: {
         candidate.replace("\\", "/").casefold()

@@ -30,6 +30,18 @@ def deny(reason: str) -> dict[str, Any]:
     }
 
 
+def runtime_arguments(arguments: list[str]) -> list[str]:
+    result = list(arguments)
+    if "--config" not in result:
+        return result
+    index = result.index("--config")
+    if index + 1 >= len(result) or not result[index + 1].strip():
+        raise ValueError("--config缺少小H配置路径")
+    os.environ["XIAOH_CONFIG"] = str(Path(result[index + 1]).expanduser().resolve())
+    del result[index : index + 2]
+    return result
+
+
 def config_path() -> Path:
     return Path(os.environ.get("XIAOH_CONFIG", str(Path.home() / ".xiaoh/config.json"))).expanduser()
 
@@ -163,7 +175,12 @@ def main() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    if sys.argv[1:] == ["--self-test"]:
+    try:
+        arguments = runtime_arguments(sys.argv[1:])
+    except ValueError as exc:
+        json.dump(deny(f"知识库写入门禁不可用：{exc}"), sys.stdout, ensure_ascii=False)
+        return
+    if arguments == ["--self-test"]:
         self_test()
         return
     try:

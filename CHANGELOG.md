@@ -1,5 +1,36 @@
 # 变更记录
 
+## 2.14.0 - 2026-07-26
+
+- 新增`xiaoh-project-recall` Skill：Workspace识别后按主题定向读取项目进度、已验收任务、规范需求基线和正式知识，并与当前代码、配置和任务状态对账。
+- 任务上下文升级到schema 1.5，业务任务绑定`xiaoh-project-recall/v1`清单的绝对路径、SHA-256、任务ID、Workspace、任务关系和完成时间。
+- Validator新增项目历史召回硬门禁：召回未完成、跨任务复用、过期、哈希不符、当前平台未绑定、越出配置Vault、空历史缺少索引证据、重复文件身份、需求基线缺少稳定确认点、仅有每日摘要或缺少当前事实来源时，拒绝需求工件路由、正式委派和后续业务生命周期动作。
+- 旧schema仅允许根线程只读审计；任何意图域的正式专业Agent委派都要求schema 1.5。
+- `SubagentStart`在消费一次性委派意图时重新运行完整任务上下文校验，阻断prepare之后发生的召回清单或来源内容漂移；校验进程超时或异常时强制降级为未授权只读。
+- 历史来源、索引和当前事实的SHA-256改为流式计算，降低大文件校验的内存放大风险。
+- macOS与Windows均通过当前Python Hook的真实`prepare → SubagentStart → SubagentStop` CLI链路自检，并覆盖带空格和非ASCII字符的配置、运行时与转录路径。
+- 明确Playbook只补充当前受管任务事实，不替代小H的项目历史召回；没有Playbook时召回门禁仍独立生效。
+- 捆绑Skill数量增加到18个，并更新README、实现设计、Playbook关系和治理文档。
+
+## 2.13.0 - 2026-07-26
+
+- 小H核心与Playbook适配解耦：没有Playbook的用户仍获得完整核心能力，普通任务不会因本机存在Playbook命令而进入受管流程。
+- 本地配置新增`integrations.playbook`三态：`auto`仅在任务明确受管时激活，`enabled`要求兼容，`disabled`跳过探测并禁止受管委派。
+- Doctor分开报告核心健康和可选集成状态；`auto`模式缺少Playbook显示`not_enabled`且不再造成核心降级，显式`enabled`缺失或不兼容仍显示`degraded`。
+- 安装时把实际本地配置绝对路径绑定到四个Hook命令；使用非默认`--config`时，委派门禁和Vault门禁不再回退读取另一份默认配置。
+- 可选插件和外部增强能力只有在`required`或`recommended`级别时影响总状态，纯`optional`缺失只记录能力状态。
+- Playbook的具体捕获、时效和重验流程收敛到`xiaoh-playbook-adapter` Skill；公共契约只保留按任务激活与失败关闭边界。
+
+## 2.12.0 - 2026-07-25
+
+- 新增`xiaoh-playbook-adapter`，只读取Playbook现有worker JSON和完整task status JSON，不修改Playbook源码、配置、任务或Git状态。
+- 区分小H长期`xiaoh_workspace_id`与Playbook当前`task_workspace_id`，并将member、worktree、allowed scope和delegated action绑定到默认15分钟有效的可验证凭证。
+- 正式委派Hook和schema 1.4校验器验证凭证文件、来源哈希、身份、范围、动作和时效；旧受管上下文只能继续只读，不能绕过新门禁。
+- 捕获拒绝超过两分钟、顺序错误、终态或worktree不一致的原始快照；委派准备和SubagentStart均重新读取当前只读task status，所有delegated scope逐项收紧到任务授权范围。
+- 凭证15分钟时效仅用于授权和启动；历史收口按当时Agent启动事实审计，不因正常任务耗时而失效。
+- Doctor探测Playbook CLI版本及只读接口兼容性；不兼容时小H全局能力保持可用，但Playbook受管业务委派失败关闭。
+- macOS与Windows统一使用同一Python委派Hook，减少双实现语义漂移。
+
 ## 2.11.0 - 2026-07-24
 
 - 新增`xiaoh-requirement-baseline`，在业务规则或结果性设计逻辑确认、纠正、拒绝或取代后立即维护主题基线。
