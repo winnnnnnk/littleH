@@ -782,7 +782,9 @@ def companion_report(install_missing: bool = False) -> dict:
     }
 
 
-def playbook_adapter_report(local: dict) -> dict:
+def playbook_adapter_report(
+    local: dict, playbook_command: str = "playbook"
+) -> dict:
     mode = integration_mode(local, "playbook")
     adapter = RUNTIME / "codex/agent-system/playbook_adapter.py"
     if not adapter.is_file():
@@ -793,7 +795,15 @@ def playbook_adapter_report(local: dict) -> dict:
             "errors": [f"缺少小H Playbook适配器: {adapter}"],
         }
     completed = subprocess.run(
-        [sys.executable, str(adapter), "probe", "--mode", mode],
+        [
+            sys.executable,
+            str(adapter),
+            "probe",
+            "--mode",
+            mode,
+            "--playbook-command",
+            playbook_command,
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",

@@ -772,15 +772,19 @@ class CompanionTests(unittest.TestCase):
                 PLAYBOOK_ADAPTER.configured_integration_mode(config)
 
     def test_playbook_adapter_report_reflects_configured_mode_when_cli_is_missing(self):
-        with patch.dict(os.environ, {"PATH": ""}, clear=False):
+        with tempfile.TemporaryDirectory() as temporary:
+            missing_command = str(Path(temporary) / "missing-playbook")
             automatic = XIAOH.playbook_adapter_report(
-                {"integrations": {"playbook": "auto"}}
+                {"integrations": {"playbook": "auto"}},
+                playbook_command=missing_command,
             )
             enabled = XIAOH.playbook_adapter_report(
-                {"integrations": {"playbook": "enabled"}}
+                {"integrations": {"playbook": "enabled"}},
+                playbook_command=missing_command,
             )
             disabled = XIAOH.playbook_adapter_report(
-                {"integrations": {"playbook": "disabled"}}
+                {"integrations": {"playbook": "disabled"}},
+                playbook_command=missing_command,
             )
 
         self.assertEqual(("auto", "not_enabled"), (automatic["mode"], automatic["status"]))
