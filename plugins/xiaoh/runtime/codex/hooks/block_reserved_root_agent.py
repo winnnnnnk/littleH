@@ -798,8 +798,13 @@ def self_test() -> None:
                 input=cli_input, text=True, encoding="utf-8", capture_output=True,
                 env=cli_environment, check=False,
             )
-            if prepared.returncode != 0 or not Path(prepared.stdout.strip()).is_file():
-                raise SystemExit("CLI prepare special-path self-test failed")
+            expected_intent = pending_path(home, "cli-parent", "reviewer")
+            if prepared.returncode != 0 or not expected_intent.is_file():
+                raise SystemExit(
+                    "CLI prepare special-path self-test failed: "
+                    f"returncode={prepared.returncode}; "
+                    f"stdout={prepared.stdout!r}; stderr={prepared.stderr!r}"
+                )
             started = subprocess.run(
                 [
                     sys.executable, str(hook_path), "--config", str(config_path),
