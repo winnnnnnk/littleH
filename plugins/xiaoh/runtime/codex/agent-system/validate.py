@@ -870,7 +870,9 @@ def example_memory_recall():
         "status": "completed",
         "workspace_id": "workspace-1",
         "task_relation": "new",
-        "manifest_path": "/tmp/xiaoh-project-recall.json",
+        "manifest_path": str(
+            Path(tempfile.gettempdir()) / "xiaoh-project-recall.json"
+        ),
         "manifest_sha256": "0" * 64,
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }

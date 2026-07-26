@@ -83,6 +83,10 @@ class CompanionTests(unittest.TestCase):
         self.assertIn("xiaoh-playbook-adapter", actual_skills)
         self.assertIn("xiaoh-project-recall", actual_skills)
 
+    def test_validator_self_test_recall_path_is_platform_absolute(self):
+        manifest_path = VALIDATOR.example_memory_recall()["manifest_path"]
+        self.assertTrue(Path(manifest_path).is_absolute(), manifest_path)
+
     def write_project_recall_fixture(self, root, memory_kind="requirement_baseline"):
         vault = root / "vault"
         vault.mkdir()
