@@ -602,6 +602,22 @@ class CompanionTests(unittest.TestCase):
         )
         self.assertIn("委派证明生成失败", response["systemMessage"])
 
+    def test_exclusive_publish_falls_back_when_hard_links_are_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.json"
+            target = root / "target.json"
+            source.write_text('{"state":"prepared"}\n', encoding="utf-8")
+            with patch.object(
+                DELEGATION_HOOK.os,
+                "link",
+                side_effect=OSError("hard links unavailable"),
+            ):
+                DELEGATION_HOOK.publish_exclusive(source, target)
+            self.assertEqual(source.read_bytes(), target.read_bytes())
+            with self.assertRaises(FileExistsError):
+                DELEGATION_HOOK.publish_exclusive(source, target)
+
     def test_subagent_start_revalidates_non_playbook_recall_after_prepare(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
