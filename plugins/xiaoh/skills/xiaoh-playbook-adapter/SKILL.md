@@ -86,9 +86,12 @@ Never use `status_review` as a fallback for a missing worker contract when the d
      --playbook-version "<playbook --version output>"
    ```
 
-5. Pass `receipt_path`, `receipt_sha256`, the complete immutable artifact set and
-   `binding_kind=status_review` into the one-time execution-binding preparation. Do not modify the
-   task context. A receipt refresh therefore leaves the stable `authority_hash` unchanged.
+5. Pass `receipt_path` as `playbook_adapter_receipt`, `receipt_sha256` as
+   `playbook_adapter_receipt_sha256`, and the receipt's
+   `playbook.artifact_manifest_sha256` as `subject_digest` into the one-time execution-binding
+   preparation. The receipt already carries `binding_kind=status_review` and the complete immutable
+   artifact set. Do not copy either into the stable task context. A receipt refresh therefore leaves
+   the stable `authority_hash` unchanged.
 6. Validate the stable task context and the generated execution binding. Immediately before
    `SubagentStart`,
    re-read live task status, require its captured task/member semantics and current Git identity to

@@ -2283,18 +2283,23 @@ class CompanionTests(unittest.TestCase):
         artifact.write_text("# Spec+RFC\n", encoding="utf-8")
         context_path = root / "task-context.json"
         context = {
-            "schema_version": "1.5",
+            "schema_version": "1.6",
             "task_id": "pb-task-workspace",
             "intent": {"domain": "business_project"},
             "scope": {"allowed_paths": [str(docs.resolve())]},
             "routing": {
                 "root_agent": "xiaoh",
                 "delegated_agents": ["java_architect"],
-                "delegated_actions": {"java_architect": "spec_rfc_review"},
+                "delegation_policies": {
+                    "java_architect": {
+                        "agent_type": "java_architect",
+                        "action": "spec_rfc_review",
+                        "task_name_prefix": "status_review",
+                    }
+                },
             },
             "playbook": {
                 "managed": True,
-                "binding_kind": "status_review",
                 "workspace_id": "pb-task-workspace",
                 "xiaoh_workspace_id": "stable-xiaoh-workspace",
                 "task_workspace_id": "pb-task-workspace",
@@ -2303,10 +2308,6 @@ class CompanionTests(unittest.TestCase):
                 "member_worktree": str(worktree.resolve()),
                 "workspace_root": str(root.resolve()),
                 "allowed_scope": [str(docs.resolve())],
-                "review_artifacts": [str(artifact.resolve())],
-                "worker_contract_source": None,
-                "adapter_receipt": None,
-                "adapter_receipt_sha256": None,
             },
         }
         context_path.write_text(
@@ -2330,14 +2331,6 @@ class CompanionTests(unittest.TestCase):
                 "spec_rfc_review",
                 playbook_command=sys.executable,
             )
-            context["playbook"]["adapter_receipt"] = str(output.resolve())
-            context["playbook"]["adapter_receipt_sha256"] = captured[
-                "receipt_sha256"
-            ]
-            context_path.write_text(
-                json.dumps(context, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
             verified = PLAYBOOK_ADAPTER.validate_receipt(
                 output,
                 expected_sha256=captured["receipt_sha256"],
@@ -2352,6 +2345,40 @@ class CompanionTests(unittest.TestCase):
             str(artifact.resolve()), verified["playbook"]["artifacts"][0]["path"]
         )
         self.assertNotIn("worker_contract_source", verified["playbook"])
+
+    def test_status_review_schema_16_supports_all_read_only_actions(self):
+        expected_actions = {
+            "read_only_analysis",
+            "design_review",
+            "spec_rfc_review",
+            "openspec_consistency_review",
+        }
+        self.assertEqual(expected_actions, PLAYBOOK_ADAPTER.STATUS_REVIEW_ACTIONS)
+        for action in sorted(expected_actions):
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                context, context_path, status, _, _, artifact = (
+                    self.write_status_review_fixture(root)
+                )
+                context["routing"]["delegation_policies"]["java_architect"][
+                    "action"
+                ] = action
+                context_path.write_text(json.dumps(context), encoding="utf-8")
+                output = root / "{}-binding.json".format(action)
+                captured = PLAYBOOK_ADAPTER.create_review_receipt(
+                    context_path,
+                    status,
+                    [str(artifact)],
+                    output,
+                    action,
+                    playbook_command=sys.executable,
+                )
+                verified = PLAYBOOK_ADAPTER.validate_receipt(
+                    output,
+                    expected_sha256=captured["receipt_sha256"],
+                    expected_action=action,
+                )
+                self.assertEqual(action, verified["delegated_action"])
 
     def test_status_review_binding_rejects_write_actions_and_changed_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -2380,11 +2407,6 @@ class CompanionTests(unittest.TestCase):
                 "spec_rfc_review",
                 playbook_command=sys.executable,
             )
-            context["playbook"]["adapter_receipt"] = str(output.resolve())
-            context["playbook"]["adapter_receipt_sha256"] = captured[
-                "receipt_sha256"
-            ]
-            context_path.write_text(json.dumps(context), encoding="utf-8")
             PLAYBOOK_ADAPTER.validate_receipt(output)
             artifact.write_text("# changed\n", encoding="utf-8")
             with self.assertRaisesRegex(
@@ -2423,8 +2445,6 @@ class CompanionTests(unittest.TestCase):
             outside.write_text("outside\n", encoding="utf-8")
             escaped = worktree / "docs/escaped.md"
             escaped.symlink_to(outside)
-            context["playbook"]["review_artifacts"] = [str(escaped)]
-            context_path.write_text(json.dumps(context), encoding="utf-8")
 
             with self.assertRaisesRegex(
                 PLAYBOOK_ADAPTER.AdapterError, "不在授权范围"
@@ -2438,25 +2458,21 @@ class CompanionTests(unittest.TestCase):
                     playbook_command=sys.executable,
                 )
 
-    def test_status_review_binding_requires_complete_declared_artifact_set(self):
+    def test_status_review_binding_rejects_duplicate_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            context, context_path, status, _, _, artifact = (
+            _, context_path, status, _, _, artifact = (
                 self.write_status_review_fixture(root)
             )
-            second = artifact.parent / "design.md"
-            second.write_text("# Design\n", encoding="utf-8")
-            context["playbook"]["review_artifacts"].append(str(second.resolve()))
-            context_path.write_text(json.dumps(context), encoding="utf-8")
 
             with self.assertRaisesRegex(
-                PLAYBOOK_ADAPTER.AdapterError, "artifact集合必须.*完全一致"
+                PLAYBOOK_ADAPTER.AdapterError, "artifact不得重复"
             ):
                 PLAYBOOK_ADAPTER.create_review_receipt(
                     context_path,
                     status,
-                    [str(artifact)],
-                    root / "incomplete-binding.json",
+                    [str(artifact), str(artifact)],
+                    root / "duplicate-binding.json",
                     "spec_rfc_review",
                     playbook_command=sys.executable,
                 )
@@ -2476,11 +2492,6 @@ class CompanionTests(unittest.TestCase):
                 "spec_rfc_review",
                 playbook_command=sys.executable,
             )
-            context["playbook"]["adapter_receipt"] = str(output.resolve())
-            context["playbook"]["adapter_receipt_sha256"] = captured[
-                "receipt_sha256"
-            ]
-            context_path.write_text(json.dumps(context), encoding="utf-8")
             live = json.loads(raw.read_text(encoding="utf-8"))
             live["task"]["status"] = "implementation"
             live["task"]["truth_phase"] = "implementation"
@@ -2547,73 +2558,119 @@ class CompanionTests(unittest.TestCase):
                 captured["receipt"]["playbook"]["status_contract"],
             )
 
-    def test_validator_accepts_status_review_and_rejects_worker_action(self):
+    def test_status_review_rejects_schema_15_context(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             context, context_path, status, _, _, artifact = (
                 self.write_status_review_fixture(root)
             )
-            output = root / "review-binding.json"
+            context["schema_version"] = "1.5"
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PLAYBOOK_ADAPTER.AdapterError, "schema 1.6"
+            ):
+                PLAYBOOK_ADAPTER.create_review_receipt(
+                    context_path,
+                    status,
+                    [str(artifact)],
+                    root / "review-binding.json",
+                    "spec_rfc_review",
+                    playbook_command=sys.executable,
+                )
+
+    def test_status_review_rejects_schema_16_runtime_fields(self):
+        runtime_fields = {
+            "binding_kind": None,
+            "stage": None,
+            "worker_contract_source": None,
+            "adapter_receipt": None,
+            "adapter_receipt_sha256": None,
+            "review_artifacts": [],
+        }
+        for field, value in runtime_fields.items():
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                context, context_path, status, _, _, artifact = (
+                    self.write_status_review_fixture(root)
+                )
+                context["playbook"][field] = value
+                context_path.write_text(json.dumps(context), encoding="utf-8")
+
+                with self.assertRaisesRegex(
+                    PLAYBOOK_ADAPTER.AdapterError, "运行时绑定字段"
+                ):
+                    PLAYBOOK_ADAPTER.create_review_receipt(
+                        context_path,
+                        status,
+                        [str(artifact)],
+                        root / "review-binding.json",
+                        "spec_rfc_review",
+                        playbook_command=sys.executable,
+                    )
+
+    def test_status_review_execution_binding_requires_artifact_manifest_digest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            context, context_path, status, _, _, artifact = (
+                self.write_status_review_fixture(root)
+            )
+            receipt_path = root / "review-binding.json"
             captured = PLAYBOOK_ADAPTER.create_review_receipt(
                 context_path,
                 status,
                 [str(artifact)],
-                output,
+                receipt_path,
                 "spec_rfc_review",
                 playbook_command=sys.executable,
             )
-            context["playbook"]["adapter_receipt"] = str(output.resolve())
-            context["playbook"]["adapter_receipt_sha256"] = captured[
-                "receipt_sha256"
-            ]
-            context_path.write_text(json.dumps(context), encoding="utf-8")
-            report = VALIDATOR.Report()
-            with patch.object(
-                VALIDATOR,
-                "playbook_probe",
-                return_value={
-                    "status": "available",
-                    "errors": [],
-                    "checks": {"task_status": {"supported": True}},
-                },
-            ):
-                receipt = VALIDATOR.validate_playbook_binding(
-                    context,
-                    report,
-                    check_paths=True,
-                    require_binding=True,
-                    check_live_status=False,
-                )
-
-            self.assertFalse(report.errors, report.errors)
-            self.assertEqual("status_review", receipt["binding_kind"])
-
-            context["routing"]["delegated_actions"] = {
-                "java_architect": "implementation"
+            hook = root / "hook.py"
+            hook.write_text("# hook\n", encoding="utf-8")
+            now = datetime.now(timezone.utc)
+            nonce = "1" * 64
+            binding = {
+                "schema_version": "xiaoh-delegation-binding/v1",
+                "prepared_at": now.isoformat(),
+                "expires_at": (now + timedelta(minutes=10)).isoformat(),
+                "session_id": "root-session",
+                "task_id": context["task_id"],
+                "task_context": str(context_path.resolve()),
+                "authority_hash": VALIDATOR.task_authority_hash(context),
+                "delegated_agent": "java_architect",
+                "agent_type": "java_architect",
+                "task_name": "status_review__r1__{}".format(nonce[:16]),
+                "action": "spec_rfc_review",
+                "review_round": 1,
+                "purpose": "spec_rfc_review",
+                "subject_digest": captured["receipt"]["playbook"][
+                    "artifact_manifest_sha256"
+                ],
+                "playbook_adapter_receipt": str(receipt_path.resolve()),
+                "playbook_adapter_receipt_sha256": captured["receipt_sha256"],
+                "nonce": nonce,
+                "hook_path": str(hook.resolve()),
+                "hook_hash": hashlib.sha256(hook.read_bytes()).hexdigest(),
             }
             report = VALIDATOR.Report()
-            with patch.object(
-                VALIDATOR,
-                "playbook_probe",
-                return_value={
-                    "status": "available",
-                    "errors": [],
-                    "checks": {"task_status": {"supported": True}},
-                },
-            ):
-                VALIDATOR.validate_playbook_binding(
-                    context,
-                    report,
-                    check_paths=True,
-                    require_binding=True,
-                    check_live_status=False,
-                )
-            self.assertTrue(
-                any(
-                    "delegated_action与委派动作不一致" in error
-                    or "read-only review actions only" in error
-                    for error in report.errors
-                ),
+            VALIDATOR.validate_execution_binding(
+                binding,
+                context,
+                context_path,
+                report,
+                check_live_status=False,
+            )
+            self.assertFalse(report.errors, report.errors)
+
+            binding["subject_digest"] = "f" * 64
+            report = VALIDATOR.Report()
+            VALIDATOR.validate_execution_binding(
+                binding,
+                context,
+                context_path,
+                report,
+                check_live_status=False,
+            )
+            self.assertIn(
+                "status_review subject_digest does not match artifact manifest",
                 report.errors,
             )
 
@@ -2865,20 +2922,23 @@ class CompanionTests(unittest.TestCase):
             context_path = root / "task-context.json"
             context_path.write_text(
                 json.dumps({
-                    "schema_version": "1.5",
+                    "schema_version": "1.6",
                     "task_id": "pb-task-workspace",
                     "intent": {"domain": "business_project"},
                     "scope": {"allowed_paths": [str(docs.resolve())]},
                     "routing": {
                         "root_agent": "xiaoh",
                         "delegated_agents": ["java_architect"],
-                        "delegated_actions": {
-                            "java_architect": "spec_rfc_review"
+                        "delegation_policies": {
+                            "java_architect": {
+                                "agent_type": "java_architect",
+                                "action": "spec_rfc_review",
+                                "task_name_prefix": "status_review",
+                            }
                         },
                     },
                     "playbook": {
                         "managed": True,
-                        "binding_kind": "status_review",
                         "workspace_id": "pb-task-workspace",
                         "xiaoh_workspace_id": "stable-xiaoh-workspace",
                         "task_workspace_id": "pb-task-workspace",
@@ -2887,10 +2947,6 @@ class CompanionTests(unittest.TestCase):
                         "member_worktree": str(worktree.resolve()),
                         "workspace_root": str(root.resolve()),
                         "allowed_scope": [str(docs.resolve())],
-                        "review_artifacts": [str(artifact.resolve())],
-                        "worker_contract_source": None,
-                        "adapter_receipt": None,
-                        "adapter_receipt_sha256": None,
                     },
                 }),
                 encoding="utf-8",

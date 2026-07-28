@@ -1823,6 +1823,16 @@ def validate_execution_binding(
                 report.error("invalid execution binding Playbook receipt: {}".format(exc))
             else:
                 facts = receipt.get("playbook", {})
+                if receipt.get("binding_kind") == "status_review":
+                    artifact_digest = facts.get("artifact_manifest_sha256")
+                    if subject_digest is None:
+                        report.error(
+                            "status_review execution binding requires subject_digest"
+                        )
+                    elif subject_digest != artifact_digest:
+                        report.error(
+                            "status_review subject_digest does not match artifact manifest"
+                        )
                 if (
                     facts.get("execution_mode") == "main_agent_direct"
                     and facts.get("recommended_executor") == "main_agent"
@@ -2109,13 +2119,10 @@ def validate_task_context(
     if data.get("schema_version") == "1.6":
         playbook = data["playbook"]
         volatile_fields = {
-            "binding_kind", "worker_contract_source", "adapter_receipt",
+            "binding_kind", "stage", "worker_contract_source", "adapter_receipt",
             "adapter_receipt_sha256", "review_artifacts",
         }
-        declared_volatile = {
-            key for key in volatile_fields
-            if playbook.get(key) not in (None, [], {})
-        }
+        declared_volatile = volatile_fields & set(playbook)
         if declared_volatile:
             report.error(
                 "schema 1.6 playbook must not contain runtime binding fields: {}".format(

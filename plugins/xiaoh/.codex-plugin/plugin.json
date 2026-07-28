@@ -1,6 +1,6 @@
 {
   "name": "xiaoh",
-  "version": "2.17.0",
+  "version": "2.17.1",
   "description": "Standalone root-thread coordination with governed multi-role review, verifiable project-history recall, optional task-scoped integrations, Workspace-aware project routing, immediate requirement baselines, task closeout, managed achievement pushes, humanized user-facing documentation, and a dual-entry development knowledge system for Codex.",
   "author": {
     "name": "XiaoH Project"

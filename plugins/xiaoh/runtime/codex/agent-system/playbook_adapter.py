@@ -321,6 +321,8 @@ def worker_facts(worker_json: Path) -> dict[str, Any]:
 
 
 def task_context_binding_hash(context: dict[str, Any]) -> str:
+    if context.get("schema_version") == "1.6":
+        return canonical_hash(context)
     normalized = json.loads(json.dumps(context, ensure_ascii=False))
     playbook = normalized.get("playbook")
     if isinstance(playbook, dict):
@@ -335,13 +337,27 @@ def review_facts(task_context_json: Path, artifacts: list[str]) -> dict[str, Any
         raise AdapterError("status_review task context必须是非符号链接绝对路径")
     task_context_json = task_context_json.resolve()
     context = load_json(task_context_json)
-    if context.get("schema_version") != "1.5":
-        raise AdapterError("status_review要求schema 1.5 task context")
+    if context.get("schema_version") != "1.6":
+        raise AdapterError("status_review要求schema 1.6 task context")
     if context.get("intent", {}).get("domain") != "business_project":
         raise AdapterError("status_review仅适用于business_project task context")
     playbook = context.get("playbook")
     if not isinstance(playbook, dict) or playbook.get("managed") is not True:
         raise AdapterError("status_review要求Playbook受管task context")
+    volatile_fields = {
+        "binding_kind",
+        "stage",
+        "worker_contract_source",
+        "adapter_receipt",
+        "adapter_receipt_sha256",
+        "review_artifacts",
+    }
+    declared_volatile = volatile_fields & set(playbook)
+    if declared_volatile:
+        raise AdapterError(
+            "schema 1.6 task context不得包含运行时绑定字段: "
+            + ", ".join(sorted(declared_volatile))
+        )
 
     def required_context_field(key: str) -> str:
         value = playbook.get(key)
@@ -358,7 +374,11 @@ def review_facts(task_context_json: Path, artifacts: list[str]) -> dict[str, Any
     member_worktree = normalized_absolute_path(
         required_context_field("member_worktree"), "playbook.member_worktree"
     )
-    if not member_worktree.is_dir() or not is_within(member_worktree, workspace_root):
+    if (
+        not workspace_root.is_dir()
+        or not member_worktree.is_dir()
+        or not is_within(member_worktree, workspace_root)
+    ):
         raise AdapterError("playbook.member_worktree不属于workspace_root")
 
     raw_scope = playbook.get("allowed_scope")
@@ -370,7 +390,7 @@ def review_facts(task_context_json: Path, artifacts: list[str]) -> dict[str, Any
             raise AdapterError("playbook.allowed_scope包含无效路径")
         requested = Path(value).expanduser()
         if not requested.is_absolute():
-            requested = member_worktree / requested
+            raise AdapterError("playbook.allowed_scope必须使用绝对路径")
         resolved = requested.resolve(strict=False)
         if not resolved.exists() or not is_within(resolved, member_worktree):
             raise AdapterError("playbook.allowed_scope超出或不存在于member_worktree")
@@ -379,36 +399,29 @@ def review_facts(task_context_json: Path, artifacts: list[str]) -> dict[str, Any
     scope_paths = context.get("scope", {}).get("allowed_paths")
     if not isinstance(scope_paths, list) or not scope_paths:
         raise AdapterError("status_review要求非空scope.allowed_paths")
-    context_scope = [
-        Path(value).expanduser().resolve(strict=False)
-        for value in scope_paths
-        if isinstance(value, str) and value.strip()
-    ]
-    declared_artifacts = playbook.get("review_artifacts")
-    if not isinstance(declared_artifacts, list) or not declared_artifacts:
-        raise AdapterError("status_review要求非空playbook.review_artifacts")
-    declared_paths = []
-    for value in declared_artifacts:
+    context_scope = []
+    for value in scope_paths:
         if not isinstance(value, str) or not value.strip():
-            raise AdapterError("playbook.review_artifacts包含无效路径")
+            raise AdapterError("scope.allowed_paths包含无效路径")
         requested = Path(value).expanduser()
         if not requested.is_absolute():
-            requested = member_worktree / requested
-        declared_paths.append(requested.resolve(strict=False))
-    if len(set(declared_paths)) != len(declared_paths):
-        raise AdapterError("playbook.review_artifacts不得重复")
+            raise AdapterError("scope.allowed_paths必须使用绝对路径")
+        resolved = requested.resolve(strict=False)
+        if not resolved.exists():
+            raise AdapterError("scope.allowed_paths包含不存在路径")
+        context_scope.append(resolved)
     if not artifacts:
         raise AdapterError("status_review至少需要一个artifact")
     requested_artifacts = []
     for value in artifacts:
+        if not isinstance(value, str) or not value.strip():
+            raise AdapterError("status_review artifact包含无效路径")
         requested = Path(value).expanduser()
         if not requested.is_absolute():
             requested = member_worktree / requested
         requested_artifacts.append(requested.resolve(strict=False))
-    if set(requested_artifacts) != set(declared_paths):
-        raise AdapterError(
-            "status_review artifact集合必须与playbook.review_artifacts完全一致"
-        )
+    if len(set(requested_artifacts)) != len(requested_artifacts):
+        raise AdapterError("status_review artifact不得重复")
     entries = []
     for artifact in requested_artifacts:
         if (
@@ -437,7 +450,7 @@ def review_facts(task_context_json: Path, artifacts: list[str]) -> dict[str, Any
         "allowed_scope": [str(path) for path in allowed_scope],
         "task_context_source": str(task_context_json),
         "task_context_binding_sha256": task_context_binding_hash(context),
-        "review_artifacts": [str(path) for path in sorted(declared_paths)],
+        "review_artifacts": [str(path) for path in sorted(requested_artifacts)],
         "artifacts": entries,
         "artifact_manifest_sha256": canonical_hash(entries),
     }

@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2.17.1 - 2026-07-28
+
+- `status_review`改为只接受schema 1.6稳定任务上下文，不再依赖schema 1.5中的运行时绑定字段。
+- 稳定上下文只保存Playbook任务身份和授权范围；`binding_kind`、`stage`、worker source、凭证路径和评审工件字段只要出现就拒绝，包括`null`和空列表。
+- `capture-review`从命令参数生成完整评审工件清单，并在短时凭证中绑定工件内容、任务状态语义和授权范围。
+- 一次性执行绑定的`subject_digest`必须等于凭证中的`artifact_manifest_sha256`，防止凭证与实际评审对象不一致。
+- 四个只读动作和两类Playbook状态契约完成schema 1.6正反回归；legacy状态继续仅供worker绑定兼容。
+
 ## 2.17.0 - 2026-07-28
 
 - 新增面向使用者的[小H说明](docs/xiaoh-guide.md)，直接说明怎么沟通、任务怎么推进、什么时候需要人工决定，以及独立模式、Playbook和Obsidian各自承担什么。
