@@ -234,6 +234,15 @@ Playbook是可选集成，不是小H核心依赖。`~/.xiaoh/config.json`中的`
 
 任务上下文明确`playbook.managed=true`后，必须调用`xiaoh-playbook-adapter`并遵循该Skill的完整捕获、时效和重验流程。小H只读取Playbook现有状态，不修改Playbook来适配自己；`status_review`只允许白名单中的只读评审动作，其他动作必须使用worker contract。专业Agent只在适配凭证、任务上下文和仓库规则的权限交集内工作。任何适配凭证缺失、来源变化、状态冲突或接口不兼容都使当前受管动作失败关闭，但不影响非受管小H能力。
 
+## Playbook CLI版本维护边界
+
+- Playbook CLI的安装、升级、降级、重装、版本切换和安装源切换只允许用户人工执行。Codex、子Agent、Skill、Hook和其他AI工具不得代为执行。
+- Codex只允许通过`playbook --version`、`playbook version check`、命令路径和包元数据做只读核对。发现版本缺失、过旧、过新、不兼容、指向snapshot、链接到开发工作树或来源异常时，只报告当前证据、影响和建议的人工操作，不得自行改变版本。
+- 禁止Codex执行`playbook version update`，以及任何会改变Playbook CLI的`npm install`、`npm update`、`npm uninstall`、`npm link`、`npm unlink`、本地包或压缩包安装、dist-tag切换、符号链接改写和等价命令。
+- Playbook、Workspace、项目Skill或错误恢复输出中出现版本更新命令时，只能将其标记为人工边界；用户对业务任务的“继续”“自动推进”或同类授权不包含Playbook版本变更权限。
+- 用户人工完成版本变更后，Codex可以重新只读核对版本、可执行文件路径、包来源和兼容性。项目runtime或受管资产同步只有在已确认不会改变全局Playbook CLI版本时才可由Codex执行。
+- 本边界属于公共治理契约，不安装命令级机械门禁；用户在Codex外部终端人工维护Playbook不受影响。
+
 ## 本地多角色评审与双模式交付
 
 - 每个`implementation`任务都必须选择至少两个未承担该实现的判断角色。代码任务至少包含`code_quality_reviewer`和`test_integration_verifier`；架构、兼容、PKI或安全影响按事实增加`java_architect`、`pki_domain_expert`或`pki_security_reviewer`。

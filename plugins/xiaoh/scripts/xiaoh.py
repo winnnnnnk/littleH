@@ -45,6 +45,16 @@ REQUIRED_AGENTS = {
     "test_integration_verifier",
 }
 TEXT_EXTENSIONS = {".md", ".toml", ".json", ".py", ".js", ".yaml", ".yml", ".txt"}
+PLAYBOOK_VERSION_POLICY_FRAGMENTS = (
+    "## Playbook CLI版本维护边界",
+    "只允许用户人工执行",
+    "`playbook --version`",
+    "`playbook version check`",
+    "`playbook version update`",
+    "`npm link`",
+    "“继续”“自动推进”或同类授权不包含Playbook版本变更权限",
+    "不安装命令级机械门禁",
+)
 
 
 def default_local_config() -> Path:
@@ -859,6 +869,82 @@ def playbook_adapter_report(
     return result
 
 
+def marked_block(text: str, marker: str) -> str | None:
+    start = f"<!-- {marker}:start -->"
+    end = f"<!-- {marker}:end -->"
+    match = re.search(re.escape(start) + r"[\s\S]*?" + re.escape(end), text)
+    return match.group(0) if match else None
+
+
+def markdown_section(text: str, heading: str) -> str | None:
+    match = re.search(
+        rf"^{re.escape(heading)}\s*$[\s\S]*?(?=^##\s|\Z)",
+        text,
+        re.MULTILINE,
+    )
+    return match.group(0).strip() if match else None
+
+
+def playbook_version_policy_report(active_agents: Path) -> dict:
+    bundled_agents = RUNTIME / "codex/AGENTS.md"
+    heading = PLAYBOOK_VERSION_POLICY_FRAGMENTS[0]
+    bundled_text = (
+        bundled_agents.read_text(encoding="utf-8")
+        if bundled_agents.is_file()
+        else ""
+    )
+    bundled_contract = marked_block(
+        bundled_text, "global-agent-common-contract"
+    )
+    canonical_section = markdown_section(bundled_contract or "", heading)
+    files = []
+    errors = []
+    for label, path in (
+        ("bundled", bundled_agents),
+        ("active", active_agents),
+    ):
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        contract = marked_block(text, "global-agent-common-contract")
+        section = markdown_section(contract or "", heading)
+        missing = [
+            fragment
+            for fragment in PLAYBOOK_VERSION_POLICY_FRAGMENTS
+            if fragment not in (section or "")
+        ]
+        section_matches = (
+            canonical_section is not None and section == canonical_section
+        )
+        if missing:
+            errors.append(
+                f"{label} AGENTS缺少Playbook CLI版本维护边界: "
+                + ", ".join(missing)
+            )
+        elif not section_matches:
+            errors.append(
+                f"{label} AGENTS的Playbook CLI版本维护边界与捆绑规范不一致"
+            )
+        files.append(
+            {
+                "kind": label,
+                "path": str(path),
+                "status": (
+                    "complete"
+                    if not missing and section_matches
+                    else "missing"
+                ),
+                "inside_managed_contract": contract is not None and section is not None,
+                "matches_bundled_section": section_matches,
+                "missing_fragments": missing,
+            }
+        )
+    return {
+        "status": "complete" if not errors else "missing",
+        "mechanical_gate": False,
+        "files": files,
+        "errors": errors,
+    }
+
+
 def resolve_paths(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     config_path = Path(args.config).expanduser() if args.config else default_local_config()
     local = load_json(config_path, {})
@@ -1207,6 +1293,8 @@ def doctor(
     active_agents = override if override.exists() and override.read_text(encoding="utf-8").strip() else codex / "AGENTS.md"
     if not active_agents.exists() or "<!-- global-agent-common-contract:start -->" not in active_agents.read_text(encoding="utf-8"):
         errors.append("生效的 AGENTS 文件缺少小H公共契约")
+    playbook_version_policy = playbook_version_policy_report(active_agents)
+    errors.extend(playbook_version_policy["errors"])
     codex_config_path = codex / "config.toml"
     config = codex_config_path.read_text(encoding="utf-8") if codex_config_path.exists() else ""
     for expected in (
@@ -1250,6 +1338,7 @@ def doctor(
         "automations": automations,
         "workspace_registry": workspace_registry,
         "playbook_adapter": playbook_adapter,
+        "playbook_version_policy": playbook_version_policy,
         "vault_templates": vault_templates,
         "warnings": list(dict.fromkeys([*companions["warnings"], *warnings])),
         "errors": errors,

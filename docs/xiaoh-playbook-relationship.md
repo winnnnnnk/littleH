@@ -1,6 +1,6 @@
 # 小H与Playbook的关系
 
-> 适用版本：小H 2.16.0
+> 适用版本：小H 2.16.1
 >
 > 文档定位：说明小H协调层与AI Dev Playbook执行治理平台如何分工、交接和共同约束专业Agent。
 >
@@ -23,6 +23,8 @@
 | `disabled` | 完全跳过Playbook探测 | 禁止受管委派，直到修改配置 |
 
 安装了Playbook命令不等于任务受管，也不会自动加载Playbook门禁。
+
+Playbook CLI本身的安装、升级、降级、重装、版本切换和安装源切换是用户人工维护边界。小H、专业Agent、Skill和Hook只读核对`playbook --version`、`playbook version check`、命令路径和包元数据；即使Playbook或错误恢复输出建议执行升级命令，也只向用户报告，不代为执行。这个边界由公共契约和Doctor诊断保证，不安装命令级机械门禁，因此不会干预用户在Codex外部终端的人工维护。
 
 可以简化为：
 
