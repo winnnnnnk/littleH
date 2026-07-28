@@ -3,7 +3,7 @@
   "policy": {
     "root_agent": "xiaoh",
     "selection_rule": "root_agent 固定为小H且不进入委派列表；选择全部 required_agents；optional_agents 只有在任务事实触发时使用；其他角色视为过度路由",
-    "independent_review_rule": "高风险设计或实现必须由未承担该实现的判断角色独立评审，小H负责综合但不能替代专业评审"
+    "independent_review_rule": "所有实现任务至少由两个未承担实现的判断角色完成多轮本地评审和收敛复审；其他高风险设计也必须独立评审，小H负责综合但不能替代专业评审"
   },
   "cases": [
     {
@@ -67,10 +67,10 @@
       "prompt": "在已确认需求和单一 worktree 中修复 Java 缺陷，补测试并验证，不涉及 PKI 安全。",
       "intent_domain": "business_project",
       "risk_level": "medium",
-      "required_agents": ["java_code_explorer", "java_implementer", "test_integration_verifier"],
-      "optional_agents": ["code_quality_reviewer"],
-      "independent_review_agents": [],
-      "rationale": "最小闭环是探索、实现和独立验证；复杂 diff 再增加代码评审。"
+      "required_agents": ["java_code_explorer", "java_implementer", "test_integration_verifier", "code_quality_reviewer"],
+      "optional_agents": [],
+      "independent_review_agents": ["test_integration_verifier", "code_quality_reviewer"],
+      "rationale": "探索和实现之后，由测试验证与代码质量两个未参与实现的角色完成本地评审闭环。"
     },
     {
       "id": "frontend-small-change",
@@ -78,10 +78,10 @@
       "prompt": "在一个前端 worktree 中修改页面交互并执行现有 lint 和测试，不修改后端接口。",
       "intent_domain": "business_project",
       "risk_level": "medium",
-      "required_agents": ["frontend_implementer", "test_integration_verifier"],
-      "optional_agents": ["code_quality_reviewer"],
-      "independent_review_agents": [],
-      "rationale": "不需要 Java 探索或架构角色，验证独立于实现。"
+      "required_agents": ["frontend_implementer", "test_integration_verifier", "code_quality_reviewer"],
+      "optional_agents": [],
+      "independent_review_agents": ["test_integration_verifier", "code_quality_reviewer"],
+      "rationale": "不需要Java角色；测试验证与代码质量角色独立完成多轮本地评审。"
     },
     {
       "id": "java-cross-repo-change",
@@ -89,10 +89,10 @@
       "prompt": "改造两个存在依赖关系的 Java 仓库，需要确认接口顺序、分别实现并完成集成验证。",
       "intent_domain": "business_project",
       "risk_level": "medium",
-      "required_agents": ["java_code_explorer", "java_architect", "java_implementer", "test_integration_verifier"],
-      "optional_agents": ["code_quality_reviewer"],
-      "independent_review_agents": [],
-      "rationale": "角色集合描述能力；每个 repo 的写入实例仍由 Playbook 拓扑和单写者规则决定。"
+      "required_agents": ["java_code_explorer", "java_architect", "java_implementer", "test_integration_verifier", "code_quality_reviewer"],
+      "optional_agents": [],
+      "independent_review_agents": ["java_architect", "test_integration_verifier", "code_quality_reviewer"],
+      "rationale": "角色集合描述能力；架构、测试和质量角色独立收敛跨仓实现，每个repo仍遵守单写者规则。"
     },
     {
       "id": "frontend-backend-change",
@@ -100,10 +100,10 @@
       "prompt": "修改 Java API 和前端调用，两个仓库分别实现，并验证接口兼容和用户行为。",
       "intent_domain": "business_project",
       "risk_level": "medium",
-      "required_agents": ["java_code_explorer", "java_architect", "java_implementer", "frontend_implementer", "test_integration_verifier"],
-      "optional_agents": ["code_quality_reviewer"],
-      "independent_review_agents": [],
-      "rationale": "需要跨边界设计、两类实现能力和统一验证。"
+      "required_agents": ["java_code_explorer", "java_architect", "java_implementer", "frontend_implementer", "test_integration_verifier", "code_quality_reviewer"],
+      "optional_agents": [],
+      "independent_review_agents": ["java_architect", "test_integration_verifier", "code_quality_reviewer"],
+      "rationale": "需要跨边界设计、两类实现能力，并由架构、测试和质量角色完成统一收敛评审。"
     },
     {
       "id": "verification-only",

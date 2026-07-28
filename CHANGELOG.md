@@ -1,5 +1,27 @@
 # 变更记录
 
+## 2.16.0 - 2026-07-27
+
+- 任务上下文升级到schema 1.6：稳定目标、范围、角色、动作和受管任务身份产生确定性`authority_hash`，具体Agent实例与短时凭证不再污染长期授权。
+- 新增`xiaoh-delegation-binding/v1`一次性执行绑定，按角色命名空间生成跨轮唯一`task_name`，绑定动作、评审轮次、对象摘要、根会话和可选Playbook收据。
+- `PreToolUse → SubagentStart → SubagentStop`生成schema 1.3认证证明，阻断错误角色、动作、命名空间、上下文替换、重放、跨会话消费和Hook漂移。
+- 本地多轮评审改为绑定稳定`authority_hash`；各轮独立保存执行绑定、Agent会话、证明、运行记录和Playbook收据，收据刷新不再使既有历史证据失效。
+- 新增schema 1.5到1.6的不可覆盖迁移命令；旧上下文继续用于只读历史审计，不伪造为新证据。
+- Windows PowerShell入口收敛为同一Python Hook的薄启动器，macOS、Linux和Windows共享一套门禁实现。
+- 新增独立模式多轮唯一名称、受管模式收据刷新、错误命名空间、迁移和schema 1.3证明正反回归。
+
+## 2.15.0 - 2026-07-27
+
+- 新增`xiaoh-local-review` Skill：所有实现任务在交付前执行至少两个独立判断角色的一轮多角色评审、问题修复和收敛复审。
+- 新增`xiaoh-local-review/v1`确定性清单校验：绑定当前任务上下文、交付模式、干净单仓Git HEAD或真实工件清单摘要、连续评审轮次、角色证据和最终结论；代码或工件变化使旧清单失效。
+- 每轮证据使用`xiaoh-local-review-evidence/v1`反向绑定评审角色、轮次、对象、结论和唯一schema 1.2认证运行记录；跨轮复用、失败gate、未认证报告和多仓漏绑均失败关闭。
+- Validator要求所有`implementation`任务至少配置两个独立评审角色，并在实现任务收口时要求证据目录中存在且仅存在一份当前有效的最终清单。
+- 明确双模式交付：未受管项目由小H本地评审闭环独立完成，Playbook受管项目在本地通过后才进入handoff、MR Ready和远程AI评审。
+- Playbook CLI存在不再影响模式判断；受管任务不可用时失败关闭，未受管任务不因安装CLI而切换。
+- Playbook远程`disabled`、`skipped`和`accepted_without_verdict`固定为例外处置，不等价于质量通过或人工Approval。
+- Playbook 0.0.40-snapshot适配器兼容当前Task Truth状态契约，包括多member的`mixed`聚合事实和`code_view.cleaned`未清理证明，并保留旧`current_state`契约的向后兼容与状态来源重验。
+- 捆绑Skill数量增加到19个，并更新README、实现设计、Playbook关系和治理文档。
+
 ## 2.14.0 - 2026-07-26
 
 - 新增`xiaoh-project-recall` Skill：Workspace识别后按主题定向读取项目进度、已验收任务、规范需求基线和正式知识，并与当前代码、配置和任务状态对账。

@@ -1,6 +1,6 @@
 # 小H实现设计
 
-> 适用版本：2.14.0
+> 适用版本：2.16.0
 >
 > 文档定位：说明小H实现了什么、各组件如何协作、哪些规则由运行时强制，以及一次任务如何从沟通走到交付和知识沉淀。
 >
@@ -12,12 +12,12 @@
 
 它由以下部分共同实现：
 
-1. Codex插件：发布18个Skill和插件元数据。
+1. Codex插件：发布19个Skill和插件元数据。
 2. 根线程协调规则：理解用户目标、核对证据、形成推荐方案并持续推进。
 3. 公共执行契约：为根线程和所有专业Agent规定事实源、权限、门禁、证据和收口要求。
 4. 专业Agent目录：提供8种跨项目复用的探索、设计、实现和评审角色。
 5. 运行时Hook：约束Agent委派和Obsidian写入路径。
-6. 任务治理资产：使用schema 1.5任务上下文、项目历史召回清单、运行记录、路由案例和校验器形成可检查证据。
+6. 任务治理资产：使用schema 1.6稳定任务授权、一次性执行绑定、项目历史召回清单、运行记录、路由案例和校验器形成可检查证据。
 7. 本地运行时管理：负责安装、更新、诊断、Workspace注册和托管任务绑定。
 8. Obsidian研发系统：将当前工作、项目进度和长期知识分开管理。
 
@@ -60,8 +60,9 @@ flowchart TB
     U["用户<br/>目标、现象、业务决定"] --> R["小H根线程<br/>理解、核对、推荐、裁决"]
 
     R --> C["公共契约<br/>事实源、意图域、门禁、收口"]
-    R --> S["18个Skill<br/>按阶段提供确定工作流"]
-    R --> T["schema 1.5任务上下文<br/>历史召回、目标、范围、来源、权限、验收"]
+    R --> S["19个Skill<br/>按阶段提供确定工作流"]
+    R --> T["schema 1.6稳定任务授权<br/>历史召回、目标、范围、角色、动作、验收"]
+    T --> B["单次执行绑定<br/>唯一名称、轮次、对象、短时收据"]
 
     T --> H1["Agent委派Hook<br/>准备一次性意图"]
     PB["可选Playbook集成<br/>仅显式受管任务激活"] -.-> PA["适配凭证<br/>身份、范围、动作、时效"]
@@ -97,7 +98,7 @@ flowchart TB
 | Hook实现 | `plugins/xiaoh/runtime/codex/hooks/` | Agent委派、Vault路径和运行时信任校验 |
 | 治理校验器 | `plugins/xiaoh/runtime/codex/agent-system/validate.py` | 上下文、运行记录、路由和收口门禁校验 |
 | 可选Playbook适配器 | `plugins/xiaoh/runtime/codex/agent-system/playbook_adapter.py` | 按`auto/enabled/disabled`配置激活；仅为明确受管任务探测只读接口、生成短时绑定并重验状态 |
-| 上下文模板 | `plugins/xiaoh/runtime/codex/agent-system/task-context.template.json` | schema 1.5正式任务上下文结构 |
+| 上下文模板 | `plugins/xiaoh/runtime/codex/agent-system/task-context.template.json` | schema 1.6稳定任务授权结构 |
 | 运行记录模板 | `plugins/xiaoh/runtime/codex/agent-system/run-record.template.json` | 门禁、验证、指标和结果采纳证据 |
 | 路由案例 | `plugins/xiaoh/runtime/codex/agent-system/routing-cases.json` | 代表性任务的最小角色集合回归基线 |
 | 运行时管理器 | `plugins/xiaoh/scripts/xiaoh.py` | 安装、更新、Doctor、Workspace和自动化绑定 |
@@ -122,7 +123,7 @@ flowchart TB
 
 业务任务先通过Workspace注册表确定项目和系统，再由`xiaoh-project-recall`按当前主题定向读取项目进度、相关任务收口、规范需求基线和已晋升知识。每日摘要只用于定位，不作为唯一权威来源。随后读取当前代码、配置、Spec+RFC、OpenSpec或任务状态，显式记录历史与现状的冲突。
 
-原始证据使用`xiaoh-project-recall/v1` JSON清单保存在任务证据目录；没有受管任务目录时放入小H配置目录的`evidence/recall`。清单绑定任务ID、Workspace、当前操作系统平台、任务关系和具体查询；每个历史来源、已检查索引和当前事实文件都记录内容SHA-256，schema 1.5任务上下文再保存清单绝对路径、SHA-256和完成时间。
+原始证据使用`xiaoh-project-recall/v1` JSON清单保存在任务证据目录；没有受管任务目录时放入小H配置目录的`evidence/recall`。清单绑定任务ID、Workspace、当前操作系统平台、任务关系和具体查询；每个历史来源、已检查索引和当前事实文件都记录内容SHA-256，schema 1.6任务上下文再保存清单绝对路径、SHA-256和完成时间。
 
 Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、当前平台未绑定、空查询、空历史缺少索引检查证据、同一文件通过路径大小写/硬链接/Unicode别名伪装成多类来源、需求基线权威来源缺少稳定确认点ID，以及缺少独立非摘要权威来源的清单。文件身份使用设备号与inode判等，文件哈希采用流式读取，避免路径字符串绕过和大文件校验放大内存占用。这样Obsidian中的推送内容成为后续分析的可验证输入，同时不会被误当成当前实现或执行权限。
 
@@ -248,9 +249,20 @@ flowchart LR
     J -->|未通过| I
     J -->|PASS| K["用户确认OpenSpec"]
     K --> L["实现与验证"]
-    L --> M["独立评审与验收"]
-    M --> N["即时收口和项目进度"]
+    L --> M["多角色本地评审"]
+    M -->|发现问题| L
+    M --> N["绑定当前HEAD的收敛复审"]
+    N --> O{"Playbook受管？"}
+    O -->|否| P["独立交付"]
+    O -->|是| Q["handoff、MR Ready和远程AI评审"]
+    P --> R["即时收口和项目进度"]
+    Q --> R
 ```
+
+所有`implementation`任务都要求至少两个未参与实现的判断角色。`xiaoh-local-review`
+保存连续评审轮次及每个角色的原始证据，最终清单绑定当前Git HEAD或不可变工件摘要。
+独立模式以该清单作为交付门禁；Playbook受管模式只有在清单通过后才进入handoff、MR
+Ready和远程AI评审。Playbook继续独占远程任务、pipeline、Approval、归档、合并和清理状态。
 
 两道评审不可互换：
 
@@ -314,7 +326,7 @@ interrupt_message = true
 
 ### 10.1 任务上下文
 
-正式任务使用schema 1.5 JSON，至少记录：
+正式任务使用schema 1.6 JSON，至少记录：
 
 - 唯一意图域。
 - 目标、当前行为和目标行为。
@@ -327,7 +339,7 @@ interrupt_message = true
 - 验收、验证、输出契约和停止条件。
 - 新鲜度与不可变修订链。
 
-任务上下文使用SHA-256绑定具体文件修订。
+schema 1.6任务上下文使用规范JSON的`authority_hash`绑定稳定授权；运行期事实由单次执行绑定单独哈希。
 
 ### 10.2 当前协作工具的委派时序
 
@@ -340,9 +352,9 @@ sequenceDiagram
     participant X as SubagentStop
     participant V as 收口校验器
 
-    R->>P: 完整tool_input + task_context + context_hash
-    P->>P: 校验角色、task_name、上下文和Hook哈希
-    P-->>R: 原子发布一次性意图
+    R->>P: 候选tool_input + task_context + authority_hash + 本轮参数
+    P->>P: 校验角色命名空间、动作、上下文、短时收据和Hook哈希
+    P-->>R: 返回含execution_binding与binding_hash的最终tool_input
     R->>S: 启动指定agent_type
     S->>S: 消费意图并绑定真实agent_id
     S-->>A: 注入权威effective_brief和随机回执
@@ -356,8 +368,8 @@ sequenceDiagram
 关键实现：
 
 - `PreToolUse`拒绝把`xiaoh`作为委派目标。
-- 根线程先通过`--prepare`生成一次性意图。
-- `SubagentStart`重新校验上下文哈希、角色、任务名和Hook哈希。
+- 根线程先通过`--prepare`生成一次性执行绑定，并原样使用返回的最终`tool_input`。
+- `SubagentStart`重新校验稳定授权哈希、执行绑定、角色、唯一任务名和Hook哈希。
 - 原始委派消息只是传输文本，不能扩大任务权限。
 - `SubagentStart`把权威有效简报和随机回执注入专业Agent。
 - `SubagentStop`要求精确回执，并绑定真实Agent转录。
@@ -679,7 +691,7 @@ Doctor检查：
 
 - 插件源码版本、已启用插件版本、已部署运行时版本。
 - 当前线程实际加载的Skill版本。
-- 18个捆绑Skill及配套插件状态。
+- 19个捆绑Skill及配套插件状态。
 - 可选集成的配置模式与状态；Playbook只有在显式启用或任务明确受管时才要求兼容。
 - 8个Agent是否完整，是否错误存在`xiaoh`子Agent或未登记Agent。
 - 公共契约和`config.toml`受管设置。
@@ -695,13 +707,14 @@ Doctor检查：
 - `degraded`：核心可用，但推荐能力、自动化绑定、运行时证明或显式`enabled`的集成不完整。
 - `failed`：核心配置、门禁、版本、Agent或路径存在阻断问题。
 
-## 15. 18个Skill的职责
+## 15. 19个Skill的职责
 
 | Skill | 作用 |
 | --- | --- |
 | `xiaoh-core` | 根线程交互、协调、验收和收口 |
 | `xiaoh-workspace-routing` | Workspace到项目和系统的持久化路由 |
 | `xiaoh-project-recall` | 定向召回项目历史、与当前事实对账并生成可验证清单 |
+| `xiaoh-local-review` | 以多角色评审、修复和收敛复审绑定当前实现证据 |
 | `xiaoh-playbook-adapter` | 仅为明确受管任务将Playbook只读worker/status事实绑定到正式委派 |
 | `xiaoh-requirement-baseline` | 业务主题确认点和设计基线 |
 | `xiaoh-requirement-routing` | 选择需求工件路线并执行门禁 |

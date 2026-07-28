@@ -8,7 +8,7 @@ description: Diagnose and verify a XiaoH installation, including registered spec
 Use `../../scripts/xiaoh.py`, resolved from this Skill directory.
 
 1. Run `python3 ../../scripts/xiaoh.py doctor --json --active-skill-root <absolute path of this Skill directory>` for static verification. This binds the report to the Skill version loaded by the current thread.
-2. Add `--runtime` only after Codex has restarted and the user says the Hooks were reviewed and trusted, or explicitly requests runtime verification.
+2. Add `--runtime` only after Codex has restarted and the user says the Hooks were reviewed and trusted, or explicitly requests runtime verification. When invoked through a Codex tool sandbox, request approved non-sandbox execution; the runtime probe fails fast inside `CODEX_SANDBOX` because a sandboxed app-server result is not authoritative.
 3. Read `../../managed-automations.json` and the static `automations` report. If the scheduled-task tool is available, call its read/view operation for every configured task ID and inspect local task files only to resolve duplicates or missing IDs; never modify them.
 4. Verify that each existing task invokes the expected namespaced Skill and that the configured template version matches. Treat the optional paused weekly task as healthy; treat a missing or drifted daily task as `degraded`, not as a XiaoH core failure.
 5. Report the XiaoH core status first, then plugin/deployed version alignment, configured Vault and `.obsidian` marker, bundled Skill count, companion plugin status, optional external capability status, integration mode/status, managed automation status, and each actionable failure with its recovery condition.

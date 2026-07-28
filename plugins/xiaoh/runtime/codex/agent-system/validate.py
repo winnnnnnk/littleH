@@ -8,18 +8,22 @@ import json
 import os
 import platform
 import re
+import subprocess
 import sys
 import tempfile
+import copy
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from playbook_adapter import (
     ALLOWED_ACTIONS as ALLOWED_DELEGATED_ACTIONS,
+    STATUS_REVIEW_ACTIONS,
     AdapterError,
     configured_integration_mode,
     playbook_probe,
     validate_receipt,
+    worker_facts,
 )
 
 
@@ -81,6 +85,13 @@ OPENSPEC_REVIEW_SKILLS = {
 }
 SPEC_RFC_REVIEW_DECISIONS = {"OPENSPEC_READY", "OPENSPEC_READY_WITH_FIXES", "OPENSPEC_NOT_READY"}
 OPENSPEC_REVIEW_DECISIONS = {"PASS", "PASS_WITH_FINDINGS", "BLOCKED"}
+LOCAL_REVIEW_SCHEMA = "xiaoh-local-review/v1"
+LOCAL_REVIEW_EVIDENCE_SCHEMA = "xiaoh-local-review-evidence/v1"
+LOCAL_REVIEW_REPOSITORY_SET_SCHEMA = "xiaoh-repository-set/v1"
+DELEGATION_BINDING_SCHEMA = "xiaoh-delegation-binding/v1"
+ALLOWED_LOCAL_REVIEW_MODES = {"standalone", "playbook_managed"}
+ALLOWED_LOCAL_REVIEW_SUBJECTS = {"git_commit", "artifact_digest"}
+ALLOWED_LOCAL_REVIEW_VERDICTS = {"changes_requested", "passed"}
 ALLOWED_RUN_STATUS = {"completed", "blocked", "failed", "cancelled"}
 ALLOWED_GATE_STATUS = {"passed", "failed", "blocked", "not-run", "blocked-as-required", "blocked-as-designed"}
 ALLOWED_VERIFICATION_STATUS = {"passed", "failed", "blocked", "not-run", "blocked-as-required", "blocked-as-designed"}
@@ -91,6 +102,7 @@ IMPLEMENTATION_AGENTS = {"java_implementer", "frontend_implementer"}
 MAX_CONTEXT_AGE_HOURS = 24
 PLAYBOOK_BINDING_MAX_AGE_SECONDS = 900
 MAX_RECALL_AGE_HOURS = 24
+DELEGATION_BINDING_MAX_AGE_SECONDS = 900
 
 
 class Report:
@@ -162,6 +174,53 @@ def file_sha256(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def canonical_json_hash(value):
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def task_authority_hash(context):
+    if not isinstance(context, dict) or context.get("schema_version") != "1.6":
+        raise ValueError("authority hash requires task context schema 1.6")
+    return canonical_json_hash(context)
+
+
+def migrate_task_context_15_to_16(source, source_path):
+    if source.get("schema_version") != "1.5":
+        raise ValueError("only task context schema 1.5 can migrate to 1.6")
+    migrated = copy.deepcopy(source)
+    migrated["schema_version"] = "1.6"
+    migrated["revision"] = source["revision"] + 1
+    migrated["previous_context"] = {
+        "path": str(source_path.expanduser().resolve()),
+        "hash": file_sha256(source_path),
+    }
+    routing = migrated["routing"]
+    names = routing.pop("delegation_names", {})
+    actions = routing.pop("delegated_actions", {})
+    routing["delegation_policies"] = {
+        agent: {
+            "agent_type": agent,
+            "action": actions[agent],
+            "task_name_prefix": names[agent],
+        }
+        for agent in routing.get("delegated_agents", [])
+    }
+    playbook = migrated["playbook"]
+    for key in (
+        "binding_kind", "stage", "review_artifacts", "worker_contract_source",
+        "adapter_receipt", "adapter_receipt_sha256",
+    ):
+        playbook.pop(key, None)
+    migrated["freshness"] = {
+        "checked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "checked_by": ROOT_AGENT,
+    }
+    return migrated
 
 
 def file_identity(path):
@@ -801,18 +860,29 @@ def validate_requirements(requirements, report):
         report.error("spec_rfc_then_openspec cannot use requirements.spec_rfc.status=not_required")
 
 
-def validate_requirement_gate(context, action, report, check_paths=True):
+def validate_requirement_gate(
+    context,
+    action,
+    report,
+    check_paths=True,
+    *,
+    root_playbook_receipt=None,
+    root_playbook_receipt_sha256=None,
+    delegated_execution_binding=None,
+    delegated_execution_binding_context_path=None,
+    check_playbook_live_status=True,
+):
     if action not in ALLOWED_REQUIREMENT_GATE_ACTIONS:
         report.error("requirement gate action must be one of {}".format(sorted(ALLOWED_REQUIREMENT_GATE_ACTIONS)))
         return
-    if action != "readonly_analysis" and context.get("schema_version") != "1.5":
-        report.error("new requirement lifecycle actions require schema 1.5 project memory recall and interaction evidence")
+    if action != "readonly_analysis" and context.get("schema_version") != "1.6":
+        report.error("new requirement lifecycle actions require schema 1.6 stable task authority")
     validate_interaction_gate(context, action, report)
     intent = context.get("intent", {})
     if intent.get("domain") != "business_project":
         report.error("requirement lifecycle gates apply only to business_project contexts")
         return
-    if context.get("schema_version") == "1.5":
+    if context.get("schema_version") in {"1.5", "1.6"}:
         validate_memory_recall(
             context.get("memory_recall"),
             context,
@@ -821,7 +891,47 @@ def validate_requirement_gate(context, action, report, check_paths=True):
             require_completed=action != "readonly_analysis",
         )
     if action == "implementation" and context.get("playbook", {}).get("managed"):
-        validate_playbook_binding(context, report, check_paths=True, require_binding=True)
+        if context.get("schema_version") == "1.6":
+            if delegated_execution_binding is not None:
+                if delegated_execution_binding_context_path is None:
+                    report.error(
+                        "managed delegated implementation requires its task context path"
+                    )
+                else:
+                    validate_execution_binding(
+                        delegated_execution_binding,
+                        context,
+                        delegated_execution_binding_context_path,
+                        report,
+                        check_paths=True,
+                        check_freshness=True,
+                        check_live_status=check_playbook_live_status,
+                    )
+                    if delegated_execution_binding.get("action") != action:
+                        report.error(
+                            "delegated execution binding action does not match requirement gate"
+                        )
+            elif not root_playbook_receipt or not root_playbook_receipt_sha256:
+                report.error(
+                    "managed root implementation requires an explicit fresh Playbook receipt"
+                )
+            else:
+                validate_root_playbook_receipt(
+                    context,
+                    root_playbook_receipt,
+                    root_playbook_receipt_sha256,
+                    action,
+                    report,
+                    check_live_status=check_playbook_live_status,
+                )
+        else:
+            validate_playbook_binding(
+                context,
+                report,
+                check_paths=True,
+                require_binding=True,
+                expected_action=action,
+            )
     requirements = context.get("requirements")
     if not isinstance(requirements, dict):
         report.error("business_project requirement gate requires requirements state")
@@ -944,7 +1054,39 @@ def closure_rejection_reasons(record, reviewer_agents=None):
     return reasons
 
 
-def expected_effective_brief(context, task_context, context_hash, agent, agent_type, task_name):
+def expected_effective_brief(
+    context, task_context, context_hash, agent, agent_type, task_name, proof=None
+):
+    if context.get("schema_version") == "1.6":
+        proof = proof or {}
+        effective = proof.get("effective_brief", {})
+        brief = {
+            "schema_version": "1.2",
+            "task_id": context.get("task_id"),
+            "task_context": str(task_context),
+            "authority_hash": context_hash,
+            "delegated_agent": agent,
+            "agent_type": agent_type,
+            "task_name": task_name,
+            "action": context.get("routing", {}).get(
+                "delegation_policies", {}
+            ).get(agent, {}).get("action"),
+            "execution_binding": effective.get("execution_binding"),
+            "binding_hash": effective.get("binding_hash"),
+            "authority": (
+                "task_context_execution_binding_and_playbook_receipt"
+                if context.get("playbook", {}).get("managed")
+                else "task_context_and_one_time_execution_binding"
+            ),
+        }
+        if context.get("playbook", {}).get("managed"):
+            brief["playbook_adapter_receipt"] = effective.get(
+                "playbook_adapter_receipt"
+            )
+            brief["playbook_adapter_receipt_sha256"] = effective.get(
+                "playbook_adapter_receipt_sha256"
+            )
+        return brief
     brief = {
         "schema_version": "1.0",
         "task_id": context.get("task_id"),
@@ -969,6 +1111,7 @@ def expected_effective_brief(context, task_context, context_hash, agent, agent_t
             "delegated_action": routing.get("delegated_actions", {}).get(agent),
             "playbook_adapter_receipt": playbook.get("adapter_receipt"),
             "playbook_adapter_receipt_sha256": playbook.get("adapter_receipt_sha256"),
+            "playbook_binding_kind": playbook.get("binding_kind") or "worker",
             "playbook_task_workspace_id": playbook.get("task_workspace_id"),
             "playbook_member": playbook.get("member"),
             "playbook_member_worktree": playbook.get("member_worktree"),
@@ -986,12 +1129,22 @@ def validate_playbook_receipt_at_agent_start(context, proof, report):
         or not playbook.get("managed")
     ):
         return
+    effective_brief = proof.get("effective_brief", {})
+    if context.get("schema_version") == "1.6":
+        receipt_path = effective_brief.get("playbook_adapter_receipt")
+        receipt_sha256 = effective_brief.get("playbook_adapter_receipt_sha256")
+        delegated_action = effective_brief.get("action")
+    else:
+        receipt_path = playbook.get("adapter_receipt")
+        receipt_sha256 = playbook.get("adapter_receipt_sha256")
+        delegated_action = effective_brief.get("delegated_action")
     try:
         receipt = validate_receipt(
-            Path(playbook["adapter_receipt"]),
-            expected_sha256=playbook["adapter_receipt_sha256"],
-            expected_action=proof.get("effective_brief", {}).get("delegated_action"),
+            Path(receipt_path),
+            expected_sha256=receipt_sha256,
+            expected_action=delegated_action,
             max_age_seconds=None,
+            check_sources=False,
             check_live_status=False,
         )
     except (AdapterError, OSError, KeyError) as exc:
@@ -1057,11 +1210,15 @@ def validate_delegation_proof(runtime_evidence, data, context, context_path, rep
         report.error("runtime delegation proof must be valid UTF-8 JSON")
         return
     schema_version = proof.get("schema_version")
-    if isinstance(context, dict) and context.get("revision", 0) >= 6 and schema_version != "1.2":
-        report.error("current task context requires an attested delegation proof schema 1.2")
+    if (
+        isinstance(context, dict)
+        and context.get("schema_version") == "1.6"
+        and schema_version != "1.3"
+    ):
+        report.error("task context schema 1.6 requires an attested delegation proof schema 1.3")
         return
-    if schema_version not in {"1.0", "1.1", "1.2"}:
-        report.error("delegation proof schema_version must be 1.0, 1.1, or 1.2")
+    if schema_version not in {"1.0", "1.1", "1.2", "1.3"}:
+        report.error("delegation proof schema_version must be 1.0, 1.1, 1.2, or 1.3")
         return
     expected = {
         "session_id": runtime_evidence["parent_agent_id"],
@@ -1112,6 +1269,82 @@ def validate_delegation_proof(runtime_evidence, data, context, context_path, rep
         ]
         if not require_keys(proof, required, "delegation proof", report):
             return
+        if schema_version == "1.3":
+            if not require_keys(
+                proof,
+                ["authority_hash", "execution_binding_hash", "execution_binding_claimed_path"],
+                "delegation proof 1.3",
+                report,
+            ):
+                return
+            if proof.get("authority_hash") != data.get("context_hash"):
+                report.error("delegation proof authority_hash does not match run record")
+            claimed_binding = Path(
+                str(proof.get("execution_binding_claimed_path"))
+            ).expanduser()
+            if not claimed_binding.is_absolute():
+                report.error("delegation proof execution_binding_claimed_path must be absolute")
+            elif check_paths and not claimed_binding.is_file():
+                report.error("delegation proof claimed execution binding does not exist")
+            elif check_paths and file_sha256(claimed_binding) != proof.get(
+                "execution_binding_hash"
+            ):
+                report.error("delegation proof execution binding hash does not match")
+            elif check_paths:
+                binding = load_json(claimed_binding, report)
+                if isinstance(binding, dict):
+                    binding_report = Report()
+                    validate_execution_binding(
+                        binding,
+                        context,
+                        context_path,
+                        binding_report,
+                        check_paths=True,
+                        check_freshness=False,
+                        check_live_status=False,
+                        check_receipt_sources=False,
+                        check_hook_source=False,
+                    )
+                    for error in binding_report.errors:
+                        report.error(
+                            "historical execution binding is invalid: {}".format(error)
+                        )
+                    if binding.get("hook_path") != proof.get("hook_path"):
+                        report.error(
+                            "historical execution binding hook_path does not match delegation proof"
+                        )
+                    if binding.get("hook_hash") != proof.get("hook_hash"):
+                        report.error(
+                            "historical execution binding hook_hash does not match delegation proof"
+                        )
+                    binding_expected = {
+                        "task_id": data.get("task_id"),
+                        "authority_hash": data.get("context_hash"),
+                        "delegated_agent": data.get("agent"),
+                        "agent_type": runtime_evidence.get("agent_type"),
+                        "task_name": runtime_evidence.get("task_name"),
+                    }
+                    for key, value in binding_expected.items():
+                        if binding.get(key) != value:
+                            report.error(
+                                "historical execution binding {} does not match run record".format(
+                                    key
+                                )
+                            )
+                    local_review = data.get("outputs", {}).get("local_review")
+                    if isinstance(local_review, dict):
+                        review_expected = {
+                            "purpose": "local_review",
+                            "review_round": local_review.get("round"),
+                            "subject_digest": local_review.get("subject_value"),
+                        }
+                        for key, value in review_expected.items():
+                            if binding.get(key) != value:
+                                report.error(
+                                    "historical execution binding {} does not match local review output".format(
+                                        key
+                                    )
+                                )
         prepared_at = parse_timestamp(proof["prepared_at"], "delegation proof prepared_at", report)
         started_at = parse_timestamp(proof["started_at"], "delegation proof started_at", report)
         attested_at = parse_timestamp(proof["attested_at"], "delegation proof attested_at", report)
@@ -1130,6 +1363,7 @@ def validate_delegation_proof(runtime_evidence, data, context, context_path, rep
             data.get("agent"),
             runtime_evidence["agent_type"],
             runtime_evidence["task_name"],
+            proof,
         )
         validate_attested_binding(proof, expected_brief, runtime_evidence["transcript_path"], report)
         validate_playbook_receipt_at_agent_start(context, proof, report)
@@ -1144,7 +1378,11 @@ def validate_delegation_proof(runtime_evidence, data, context, context_path, rep
         report.error("delegation proof Hook does not exist: {}".format(hook_path))
     elif (
         isinstance(context, dict)
-        and context.get("revision", 0) >= 6
+        and schema_version != "1.3"
+        and (
+            context.get("schema_version") == "1.6"
+            or context.get("revision", 0) >= 6
+        )
         and re.fullmatch(r"[0-9a-f]{64}", str(proof.get("hook_hash")))
         and hashlib.sha256(hook_path.read_bytes()).hexdigest() != proof["hook_hash"]
     ):
@@ -1280,6 +1518,7 @@ def validate_playbook_binding(
     require_binding=False,
     check_freshness=True,
     check_live_status=True,
+    expected_action=None,
 ):
     playbook = context.get("playbook")
     routing = context.get("routing")
@@ -1314,8 +1553,6 @@ def validate_playbook_binding(
             report.warn(message + "; legacy context is read-only")
         return None
     delegated_agents = routing.get("delegated_agents", [])
-    if set(delegated_actions) != set(delegated_agents):
-        report.error("routing.delegated_actions keys must equal delegated_agents")
     invalid_actions = {
         value for value in delegated_actions.values()
         if not isinstance(value, str) or value not in ALLOWED_DELEGATED_ACTIONS
@@ -1326,8 +1563,14 @@ def validate_playbook_binding(
             + ", ".join(sorted(str(value) for value in invalid_actions))
         )
     actions = set(delegated_actions.values())
-    if len(actions) != 1:
-        report.error("one Playbook adapter receipt can bind exactly one delegated action")
+    has_delegation = bool(delegated_agents or delegated_actions)
+    if has_delegation:
+        if set(delegated_actions) != set(delegated_agents):
+            report.error("routing.delegated_actions keys must equal delegated_agents")
+        if len(actions) != 1:
+            report.error("one Playbook adapter receipt can bind exactly one delegated action")
+        if expected_action and actions != {expected_action}:
+            report.error("routing.delegated_actions does not match the required action")
     if playbook.get("workspace_id") != playbook.get("task_workspace_id"):
         report.error("playbook.workspace_id legacy alias must equal playbook.task_workspace_id")
     receipt_path = Path(playbook["adapter_receipt"]).expanduser()
@@ -1338,12 +1581,18 @@ def validate_playbook_binding(
         report.error("playbook.adapter_receipt_sha256 must be a lowercase SHA-256 digest")
         return None
     if not check_paths:
+        if require_binding and not has_delegation:
+            report.error(
+                "main_agent_direct requires worker identity and receipt path validation"
+            )
         return None
     try:
         receipt = validate_receipt(
             receipt_path,
             expected_sha256=playbook["adapter_receipt_sha256"],
-            expected_action=next(iter(actions)) if len(actions) == 1 else None,
+            expected_action=expected_action or (
+                next(iter(actions)) if len(actions) == 1 else None
+            ),
             max_age_seconds=PLAYBOOK_BINDING_MAX_AGE_SECONDS if check_freshness else None,
             check_live_status=check_live_status,
         )
@@ -1351,14 +1600,58 @@ def validate_playbook_binding(
         report.error("invalid XiaoH Playbook adapter receipt: {}".format(exc))
         return None
     if check_freshness:
-        probe = playbook_probe(receipt["playbook"]["command"], mode)
-        if probe.get("status") != "compatible":
+        binding_kind = receipt.get("binding_kind", "worker")
+        if binding_kind == "worker":
+            probe = playbook_probe(
+                receipt["playbook"]["command"],
+                mode,
+                Path(receipt["playbook"]["worker_contract_source"]),
+                Path(receipt["playbook"]["status_source"]),
+                check_source_freshness=False,
+            )
+            probe_ready = probe.get("status") == "compatible"
+        else:
+            probe = playbook_probe(
+                receipt["playbook"]["command"], mode, require_worker=False
+            )
+            probe_ready = (
+                probe.get("status") in {"available", "compatible"}
+                and probe.get("checks", {}).get("task_status", {}).get("supported")
+            )
+        if not probe_ready:
             report.error(
                 "managed Playbook delegation requires a compatible adapter probe: "
                 + "; ".join(probe.get("errors") or [str(probe.get("status"))])
             )
             return None
     receipt_playbook = receipt["playbook"]
+    binding_kind = receipt.get("binding_kind", "worker")
+    if binding_kind == "worker":
+        try:
+            current_worker = worker_facts(
+                Path(receipt_playbook["worker_contract_source"])
+            )
+        except (AdapterError, OSError) as exc:
+            report.error("invalid XiaoH Playbook worker identity: {}".format(exc))
+            return None
+    else:
+        current_worker = receipt_playbook
+        if actions and not actions.issubset(STATUS_REVIEW_ACTIONS):
+            report.error("status_review binding can authorize read-only review actions only")
+    main_agent_direct = (
+        binding_kind == "worker"
+        and
+        current_worker.get("execution_mode") == "main_agent_direct"
+        and current_worker.get("recommended_executor") == "main_agent"
+    )
+    if main_agent_direct:
+        if routing.get("root_agent") != ROOT_AGENT:
+            report.error("main_agent_direct requires the current XiaoH root agent")
+        if delegated_agents or delegated_actions:
+            report.error("main_agent_direct cannot declare delegated agents or actions")
+    else:
+        if not has_delegation:
+            report.error("one Playbook adapter receipt can bind exactly one delegated action")
     comparisons = {
         "xiaoh_workspace_id": receipt["xiaoh_workspace_id"],
         "task_workspace_id": receipt_playbook["task_workspace_id"],
@@ -1366,16 +1659,21 @@ def validate_playbook_binding(
         "member": receipt_playbook["member"],
         "member_worktree": receipt_playbook["member_worktree"],
         "workspace_root": receipt_playbook["workspace_root"],
-        "worker_contract_source": receipt_playbook["worker_contract_source"],
     }
+    if binding_kind == "worker":
+        comparisons["worker_contract_source"] = receipt_playbook[
+            "worker_contract_source"
+        ]
     for key, expected in comparisons.items():
         if playbook.get(key) != expected:
             report.error("playbook.{} does not match adapter receipt".format(key))
+    if (playbook.get("binding_kind") or "worker") != binding_kind:
+        report.error("playbook.binding_kind does not match adapter receipt")
     if playbook.get("allowed_scope") != receipt_playbook["allowed_scope"]:
         report.error("playbook.allowed_scope does not match adapter receipt")
     allowed_paths = context.get("scope", {}).get("allowed_paths", [])
     member_worktree = receipt_playbook["member_worktree"]
-    if isinstance(allowed_paths, list) and not any(
+    if binding_kind == "worker" and isinstance(allowed_paths, list) and not any(
         isinstance(path, str) and path_is_covered(member_worktree, [path])
         for path in allowed_paths
     ):
@@ -1393,6 +1691,224 @@ def validate_playbook_binding(
     return receipt
 
 
+def validate_execution_binding(
+    binding,
+    context,
+    context_path,
+    report,
+    *,
+    check_paths=True,
+    check_freshness=True,
+    check_live_status=True,
+    check_receipt_sources=True,
+    check_hook_source=True,
+):
+    required = [
+        "schema_version", "prepared_at", "expires_at", "session_id", "task_id",
+        "task_context", "authority_hash", "delegated_agent", "agent_type",
+        "task_name", "action", "review_round", "purpose", "subject_digest",
+        "playbook_adapter_receipt", "playbook_adapter_receipt_sha256",
+        "nonce", "hook_path", "hook_hash",
+    ]
+    if not require_keys(binding, required, "execution binding", report):
+        return
+    if binding["schema_version"] != DELEGATION_BINDING_SCHEMA:
+        report.error("execution binding schema_version must be {}".format(DELEGATION_BINDING_SCHEMA))
+    if context.get("schema_version") != "1.6":
+        report.error("execution binding requires task context schema 1.6")
+        return
+    expected_path = context_path.expanduser().resolve(strict=False)
+    bound_path = Path(str(binding["task_context"])).expanduser()
+    if not bound_path.is_absolute() or bound_path.resolve(strict=False) != expected_path:
+        report.error("execution binding task_context must bind the current context")
+    try:
+        expected_authority = task_authority_hash(context)
+    except ValueError as exc:
+        report.error(str(exc))
+        return
+    if binding["authority_hash"] != expected_authority:
+        report.error("execution binding authority_hash does not match task context")
+    if binding["task_id"] != context.get("task_id"):
+        report.error("execution binding task_id does not match task context")
+    prepared_at = parse_timestamp(binding["prepared_at"], "execution binding prepared_at", report)
+    expires_at = parse_timestamp(binding["expires_at"], "execution binding expires_at", report)
+    if prepared_at and expires_at:
+        if expires_at <= prepared_at:
+            report.error("execution binding expires_at must be after prepared_at")
+        lifetime = (expires_at - prepared_at).total_seconds()
+        if lifetime > DELEGATION_BINDING_MAX_AGE_SECONDS:
+            report.error(
+                "execution binding lifetime exceeds {} seconds".format(
+                    DELEGATION_BINDING_MAX_AGE_SECONDS
+                )
+            )
+        if check_freshness:
+            now = datetime.now(timezone.utc)
+            if prepared_at.astimezone(timezone.utc) - now > timedelta(seconds=300):
+                report.error("execution binding prepared_at is in the future")
+            if now > expires_at.astimezone(timezone.utc):
+                report.error("execution binding is expired")
+    for key in ("session_id", "delegated_agent", "agent_type", "task_name", "action"):
+        if not isinstance(binding[key], str) or not binding[key].strip():
+            report.error("execution binding {} must be a non-empty string".format(key))
+    if not re.fullmatch(r"[0-9a-f]{64}", str(binding["nonce"])):
+        report.error("execution binding nonce must be a lowercase 256-bit hex value")
+    review_round = binding["review_round"]
+    if review_round is not None and (
+        not isinstance(review_round, int)
+        or isinstance(review_round, bool)
+        or review_round < 1
+    ):
+        report.error("execution binding review_round must be null or a positive integer")
+    purpose = binding["purpose"]
+    if purpose is not None and (not isinstance(purpose, str) or not purpose.strip()):
+        report.error("execution binding purpose must be null or a non-empty string")
+    subject_digest = binding["subject_digest"]
+    if subject_digest is not None and not re.fullmatch(r"[0-9a-f]{64}", str(subject_digest)):
+        report.error("execution binding subject_digest must be null or a lowercase SHA-256 digest")
+    routing = context.get("routing", {})
+    agent = binding["delegated_agent"]
+    policies = routing.get("delegation_policies", {})
+    policy = policies.get(agent) if isinstance(policies, dict) else None
+    if agent not in routing.get("delegated_agents", []) or not isinstance(policy, dict):
+        report.error("execution binding delegated_agent is not authorized")
+        policy = {}
+    if binding["agent_type"] != policy.get("agent_type"):
+        report.error("execution binding agent_type does not match delegation policy")
+    if binding["action"] != policy.get("action"):
+        report.error("execution binding action does not match delegation policy")
+    prefix = policy.get("task_name_prefix")
+    if (
+        not isinstance(prefix, str)
+        or not re.fullmatch(
+            re.escape(prefix) + r"__r[1-9][0-9]*__[0-9a-f]{8,64}",
+            str(binding["task_name"]),
+        )
+    ):
+        report.error("execution binding task_name is outside its authorized namespace")
+    elif binding["task_name"].rsplit("__", 1)[-1] != str(binding["nonce"])[:16]:
+        report.error("execution binding task_name suffix must be derived from its nonce")
+    hook_path = Path(str(binding["hook_path"])).expanduser()
+    if not hook_path.is_absolute():
+        report.error("execution binding hook_path must be absolute")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(binding["hook_hash"])):
+        report.error("execution binding hook_hash must be a lowercase SHA-256 digest")
+    elif check_paths and check_hook_source:
+        if not hook_path.is_file():
+            report.error("execution binding hook_path does not exist")
+        elif file_sha256(hook_path) != binding["hook_hash"]:
+            report.error("execution binding hook_hash does not match hook_path")
+    playbook = context.get("playbook", {})
+    receipt_value = binding["playbook_adapter_receipt"]
+    receipt_hash = binding["playbook_adapter_receipt_sha256"]
+    if playbook.get("managed"):
+        receipt_path = Path(str(receipt_value)).expanduser()
+        if not receipt_path.is_absolute():
+            report.error("managed execution binding requires an absolute Playbook receipt")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(receipt_hash)):
+            report.error("managed execution binding requires a Playbook receipt SHA-256")
+        elif check_paths and receipt_path.is_file():
+            try:
+                receipt = validate_receipt(
+                    receipt_path,
+                    expected_sha256=receipt_hash,
+                    expected_action=binding["action"],
+                    max_age_seconds=(
+                        PLAYBOOK_BINDING_MAX_AGE_SECONDS if check_freshness else None
+                    ),
+                    check_sources=check_receipt_sources,
+                    check_live_status=check_live_status,
+                )
+            except (AdapterError, OSError) as exc:
+                report.error("invalid execution binding Playbook receipt: {}".format(exc))
+            else:
+                facts = receipt.get("playbook", {})
+                if (
+                    facts.get("execution_mode") == "main_agent_direct"
+                    and facts.get("recommended_executor") == "main_agent"
+                ):
+                    report.error(
+                        "professional execution binding cannot use a "
+                        "main_agent_direct Playbook receipt"
+                    )
+                comparisons = {
+                    "xiaoh_workspace_id": receipt.get("xiaoh_workspace_id"),
+                    "task_workspace_id": facts.get("task_workspace_id"),
+                    "change_id": facts.get("change_id"),
+                    "member": facts.get("member"),
+                    "member_worktree": facts.get("member_worktree"),
+                    "workspace_root": facts.get("workspace_root"),
+                    "allowed_scope": facts.get("allowed_scope"),
+                }
+                for key, expected in comparisons.items():
+                    if playbook.get(key) != expected:
+                        report.error(
+                            "execution binding Playbook {} does not match task authority".format(
+                                key
+                            )
+                        )
+        elif check_paths:
+            report.error("managed execution binding Playbook receipt does not exist")
+    elif receipt_value is not None or receipt_hash is not None:
+        report.error("standalone execution binding must not carry a Playbook receipt")
+    sensitive = find_sensitive_keys(binding)
+    if sensitive:
+        report.error(
+            "execution binding contains forbidden sensitive fields: {}".format(
+                ", ".join(sensitive)
+            )
+        )
+
+
+def validate_root_playbook_receipt(
+    context,
+    receipt_path,
+    receipt_sha256,
+    action,
+    report,
+    *,
+    check_live_status=True,
+):
+    if context.get("schema_version") != "1.6":
+        report.error("root Playbook receipt requires task context schema 1.6")
+        return
+    try:
+        receipt = validate_receipt(
+            Path(receipt_path),
+            expected_sha256=receipt_sha256,
+            expected_action=action,
+            max_age_seconds=PLAYBOOK_BINDING_MAX_AGE_SECONDS,
+            check_live_status=check_live_status,
+        )
+    except (AdapterError, OSError, TypeError) as exc:
+        report.error("invalid root Playbook receipt: {}".format(exc))
+        return
+    facts = receipt.get("playbook", {})
+    try:
+        worker = worker_facts(Path(facts["worker_contract_source"]))
+    except (AdapterError, OSError, KeyError) as exc:
+        report.error("invalid root Playbook worker identity: {}".format(exc))
+        return
+    if (
+        worker.get("execution_mode") != "main_agent_direct"
+        or worker.get("recommended_executor") != "main_agent"
+    ):
+        report.error("root Playbook receipt is not authorized for main_agent_direct")
+    playbook = context.get("playbook", {})
+    comparisons = {
+        "xiaoh_workspace_id": receipt.get("xiaoh_workspace_id"),
+        "task_workspace_id": facts.get("task_workspace_id"),
+        "change_id": facts.get("change_id"),
+        "member": facts.get("member"),
+        "member_worktree": facts.get("member_worktree"),
+        "workspace_root": facts.get("workspace_root"),
+        "allowed_scope": facts.get("allowed_scope"),
+    }
+    for key, expected in comparisons.items():
+        if playbook.get(key) != expected:
+            report.error("root Playbook receipt {} does not match task authority".format(key))
+
+
 def validate_task_context(
     data,
     report,
@@ -1408,18 +1924,18 @@ def validate_task_context(
     ]
     if not require_keys(data, required, "task context", report):
         return
-    if data["schema_version"] not in {"1.2", "1.3", "1.4", "1.5"}:
-        report.error("task context schema_version must be 1.2, 1.3, 1.4, or 1.5")
-    if data["schema_version"] in {"1.3", "1.4", "1.5"}:
+    if data["schema_version"] not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
+        report.error("task context schema_version must be 1.2, 1.3, 1.4, 1.5, or 1.6")
+    if data["schema_version"] in {"1.3", "1.4", "1.5", "1.6"}:
         validate_intent(data.get("intent"), data, report)
         domain = data.get("intent", {}).get("domain") if isinstance(data.get("intent"), dict) else None
         if domain == "business_project":
             validate_requirements(data.get("requirements"), report)
         elif data.get("requirements") is not None:
             report.error("requirements must be null outside business_project contexts")
-    if data["schema_version"] in {"1.4", "1.5"}:
+    if data["schema_version"] in {"1.4", "1.5", "1.6"}:
         validate_interaction(data.get("interaction"), report)
-    if data["schema_version"] == "1.5":
+    if data["schema_version"] in {"1.5", "1.6"}:
         domain = data.get("intent", {}).get("domain") if isinstance(data.get("intent"), dict) else None
         if domain == "business_project":
             delegated = data.get("routing", {}).get("delegated_agents", [])
@@ -1491,33 +2007,73 @@ def validate_task_context(
                     report.error("{} contains non-absolute path: {}".format(label, path))
                 elif check_paths and not Path(path).exists():
                     report.error("{} path does not exist: {}".format(label, path))
-    if require_keys(
-        data["routing"],
-        ["root_agent", "delegated_agents", "delegation_names", "selection_reason", "independent_review_required", "independent_review_agents"],
-        "routing", report,
-    ):
+    routing_keys = [
+        "root_agent", "delegated_agents", "selection_reason",
+        "independent_review_required", "independent_review_agents",
+    ]
+    routing_keys.append(
+        "delegation_policies"
+        if data.get("schema_version") == "1.6"
+        else "delegation_names"
+    )
+    if require_keys(data["routing"], routing_keys, "routing", report):
         root_agent = data["routing"]["root_agent"]
         selected = data["routing"]["delegated_agents"]
-        delegation_names = data["routing"]["delegation_names"]
         reviewers = data["routing"]["independent_review_agents"]
         if root_agent != ROOT_AGENT:
             report.error("routing.root_agent must be {}".format(ROOT_AGENT))
         selected = validate_string_list(selected, "routing.delegated_agents", report)
-        if data.get("schema_version") != "1.5" and selected:
-            report.error("formal delegation requires schema 1.5")
-        if not isinstance(delegation_names, dict):
-            report.error("routing.delegation_names must be an object")
-            delegation_names = {}
-        if set(delegation_names) != set(selected):
-            report.error("routing.delegation_names keys must equal delegated_agents")
-        names = list(delegation_names.values())
-        valid_names = [name for name in names if isinstance(name, str)]
-        if len(valid_names) != len(names) or any(not re.fullmatch(r"[a-z0-9_]+", name) for name in valid_names):
-            report.error("routing.delegation_names values must match [a-z0-9_]+")
-        if len(valid_names) != len(set(valid_names)):
-            report.error("routing.delegation_names values must be unique")
-        if any(normalize_agent_name(name) in RESERVED_AGENT_ALIASES for name in valid_names):
-            report.error("routing.delegation_names cannot use the reserved root identity")
+        if data.get("schema_version") not in {"1.5", "1.6"} and selected:
+            report.error("formal delegation requires schema 1.5 or 1.6")
+        if data.get("schema_version") == "1.6":
+            policies = data["routing"].get("delegation_policies")
+            if not isinstance(policies, dict):
+                report.error("routing.delegation_policies must be an object")
+                policies = {}
+            if set(policies) != set(selected):
+                report.error("routing.delegation_policies keys must equal delegated_agents")
+            prefixes = []
+            for agent, policy in policies.items():
+                label = "routing.delegation_policies.{}".format(agent)
+                if not require_keys(
+                    policy,
+                    ["agent_type", "action", "task_name_prefix"],
+                    label,
+                    report,
+                ):
+                    continue
+                if policy["agent_type"] != agent:
+                    report.error("{}.agent_type must equal its registered role".format(label))
+                if policy["action"] not in ALLOWED_DELEGATED_ACTIONS:
+                    report.error("{}.action is unsupported".format(label))
+                prefix = policy["task_name_prefix"]
+                if not isinstance(prefix, str) or not re.fullmatch(r"[a-z0-9_]+", prefix):
+                    report.error("{}.task_name_prefix must match [a-z0-9_]+".format(label))
+                else:
+                    prefixes.append(prefix)
+                    if normalize_agent_name(prefix) in RESERVED_AGENT_ALIASES:
+                        report.error("{}.task_name_prefix cannot use the reserved root identity".format(label))
+            if len(prefixes) != len(set(prefixes)):
+                report.error("routing.delegation_policies task_name_prefix values must be unique")
+            if "delegation_names" in data["routing"]:
+                report.error("schema 1.6 routing must not declare concrete delegation_names")
+            if "delegated_actions" in data["routing"]:
+                report.error("schema 1.6 routing must not declare delegated_actions outside delegation_policies")
+        else:
+            delegation_names = data["routing"].get("delegation_names")
+            if not isinstance(delegation_names, dict):
+                report.error("routing.delegation_names must be an object")
+                delegation_names = {}
+            if set(delegation_names) != set(selected):
+                report.error("routing.delegation_names keys must equal delegated_agents")
+            names = list(delegation_names.values())
+            valid_names = [name for name in names if isinstance(name, str)]
+            if len(valid_names) != len(names) or any(not re.fullmatch(r"[a-z0-9_]+", name) for name in valid_names):
+                report.error("routing.delegation_names values must match [a-z0-9_]+")
+            if len(valid_names) != len(set(valid_names)):
+                report.error("routing.delegation_names values must be unique")
+            if any(normalize_agent_name(name) in RESERVED_AGENT_ALIASES for name in valid_names):
+                report.error("routing.delegation_names cannot use the reserved root identity")
         if ROOT_AGENT in selected:
             report.error("routing.delegated_agents cannot contain reserved root agent {}".format(ROOT_AGENT))
         reviewers = validate_string_list(reviewers, "routing.independent_review_agents", report)
@@ -1528,20 +2084,103 @@ def validate_task_context(
             report.error("routing independent reviewers must be selected agents")
         if set(reviewers) & ({ROOT_AGENT} | IMPLEMENTATION_AGENTS):
             report.error("routing independent reviewers cannot be the coordinator or implementers")
-        required_review = data["risk_level"] in {"high", "critical"}
+        required_review = (
+            data["task_type"] == "implementation"
+            or data["risk_level"] in {"high", "critical"}
+        )
         if required_review and not data["routing"]["independent_review_required"]:
-            report.error("high-risk task context must require independent review")
+            report.error(
+                "implementation and high-risk task contexts must require independent review"
+            )
         if data["routing"]["independent_review_required"] and not reviewers:
             report.error("independent review requires at least one reviewer")
-    require_keys(data["playbook"], ["managed", "workspace_id", "change_id", "stage", "worker_contract_source"], "playbook", report)
-    validate_playbook_binding(
-        data,
-        report,
-        check_paths=check_paths,
-        require_binding=False,
-        check_freshness=check_playbook_freshness,
-        check_live_status=check_playbook_live_status,
-    )
+        if data["task_type"] == "implementation" and len(set(reviewers)) < 2:
+            report.error(
+                "implementation task context requires at least two independent review roles"
+            )
+    playbook_keys = [
+        "managed", "workspace_id", "xiaoh_workspace_id", "task_workspace_id",
+        "change_id", "member", "member_worktree", "workspace_root",
+        "allowed_scope",
+    ]
+    if data.get("schema_version") != "1.6":
+        playbook_keys.extend(["stage", "worker_contract_source"])
+    require_keys(data["playbook"], playbook_keys, "playbook", report)
+    if data.get("schema_version") == "1.6":
+        playbook = data["playbook"]
+        volatile_fields = {
+            "binding_kind", "worker_contract_source", "adapter_receipt",
+            "adapter_receipt_sha256", "review_artifacts",
+        }
+        declared_volatile = {
+            key for key in volatile_fields
+            if playbook.get(key) not in (None, [], {})
+        }
+        if declared_volatile:
+            report.error(
+                "schema 1.6 playbook must not contain runtime binding fields: {}".format(
+                    ", ".join(sorted(declared_volatile))
+                )
+            )
+        if playbook.get("managed"):
+            for key in (
+                "xiaoh_workspace_id", "task_workspace_id", "change_id", "member",
+                "member_worktree", "workspace_root", "allowed_scope",
+            ):
+                if playbook.get(key) in (None, "", []):
+                    report.error("managed schema 1.6 context requires playbook.{}".format(key))
+            if playbook.get("workspace_id") != playbook.get("task_workspace_id"):
+                report.error("playbook.workspace_id legacy alias must equal playbook.task_workspace_id")
+            task_allowed_paths = data.get("scope", {}).get("allowed_paths", [])
+            member_worktree = playbook.get("member_worktree")
+            if (
+                isinstance(member_worktree, str)
+                and member_worktree
+                and not path_is_covered(member_worktree, task_allowed_paths)
+            ):
+                report.error(
+                    "playbook.member_worktree is outside task scope.allowed_paths"
+                )
+            allowed_scope = playbook.get("allowed_scope")
+            if not isinstance(allowed_scope, list) or not allowed_scope:
+                report.error(
+                    "managed schema 1.6 context requires non-empty playbook.allowed_scope"
+                )
+            else:
+                for index, path_value in enumerate(allowed_scope):
+                    if not isinstance(path_value, str) or not Path(
+                        path_value
+                    ).expanduser().is_absolute():
+                        report.error(
+                            "playbook.allowed_scope[{}] must be an absolute path".format(
+                                index
+                            )
+                        )
+                    elif not path_is_covered(path_value, task_allowed_paths):
+                        report.error(
+                            "playbook.allowed_scope[{}] is outside task scope.allowed_paths".format(
+                                index
+                            )
+                        )
+                    elif (
+                        isinstance(member_worktree, str)
+                        and member_worktree
+                        and not path_is_covered(path_value, [member_worktree])
+                    ):
+                        report.error(
+                            "playbook.allowed_scope[{}] is outside playbook.member_worktree".format(
+                                index
+                            )
+                        )
+    else:
+        validate_playbook_binding(
+            data,
+            report,
+            check_paths=check_paths,
+            require_binding=False,
+            check_freshness=check_playbook_freshness,
+            check_live_status=check_playbook_live_status,
+        )
     if require_keys(data["output_contract"], ["format", "required_fields"], "output_contract", report):
         if not isinstance(data["output_contract"]["format"], str) or not data["output_contract"]["format"].strip():
             report.error("output_contract.format must be a non-empty string")
@@ -1584,13 +2223,820 @@ def validate_task_context(
                 report.error("{}.path is outside scope.allowed_paths: {}".format(label, source["path"]))
             if check_paths and source["required"] and not Path(source["path"]).exists():
                 report.error("{} required path does not exist: {}".format(label, source["path"]))
-    if isinstance(data["playbook"], dict) and data["playbook"].get("managed"):
-        for key in ("workspace_id", "stage", "worker_contract_source"):
+    if (
+        data.get("schema_version") != "1.6"
+        and isinstance(data["playbook"], dict)
+        and data["playbook"].get("managed")
+    ):
+        binding_kind = data["playbook"].get("binding_kind") or "worker"
+        if binding_kind not in {"worker", "status_review"}:
+            report.error("managed Playbook context has invalid playbook.binding_kind")
+        for key in ("workspace_id", "stage"):
             if not data["playbook"].get(key):
                 report.error("managed Playbook context requires playbook.{}".format(key))
+        if (
+            binding_kind == "worker"
+            and not data["playbook"].get("worker_contract_source")
+        ):
+            report.error(
+                "worker Playbook context requires playbook.worker_contract_source"
+            )
+        if (
+            binding_kind == "status_review"
+            and data["playbook"].get("worker_contract_source")
+        ):
+            report.error(
+                "status_review Playbook context must not declare worker_contract_source"
+            )
     sensitive = find_sensitive_keys(data)
     if sensitive:
         report.error("task context contains forbidden sensitive fields: {}".format(", ".join(sensitive)))
+
+
+def validate_local_review_evidence(
+    entries,
+    reviewers,
+    allowed_paths,
+    label,
+    report,
+    check_paths,
+    *,
+    context,
+    context_path,
+    round_number,
+    subject_value,
+    seen_evidence,
+    seen_run_ids,
+    seen_run_digests,
+    seen_agent_ids,
+    seen_transcript_hashes,
+    seen_proof_hashes,
+    seen_binding_hashes,
+    seen_task_names,
+):
+    outcomes = []
+    if not isinstance(entries, list) or not entries:
+        report.error("{}.evidence must be a non-empty list".format(label))
+        return outcomes
+    evidence_reviewers = []
+    for index, entry in enumerate(entries):
+        entry_label = "{}.evidence[{}]".format(label, index)
+        if not require_keys(entry, ["reviewer", "path", "sha256"], entry_label, report):
+            continue
+        reviewer = entry["reviewer"]
+        path_value = entry["path"]
+        digest = entry["sha256"]
+        if reviewer not in reviewers:
+            report.error("{}.reviewer must be listed in round reviewers".format(entry_label))
+        else:
+            evidence_reviewers.append(reviewer)
+        path = Path(str(path_value)).expanduser()
+        if not path.is_absolute():
+            report.error("{}.path must be absolute".format(entry_label))
+        elif allowed_paths and not path_is_covered(str(path), allowed_paths):
+            report.error("{}.path is outside scope.allowed_paths".format(entry_label))
+        elif check_paths and not path.is_file():
+            report.error("{}.path does not exist: {}".format(entry_label, path))
+        if not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
+            report.error("{}.sha256 must be a lowercase SHA-256 digest".format(entry_label))
+        elif check_paths and path.is_file():
+            if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                report.error("{}.sha256 does not match evidence file".format(entry_label))
+        evidence_identity = (str(path.resolve(strict=False)), str(digest))
+        if evidence_identity in seen_evidence:
+            report.error("{}.path and sha256 cannot be reused across review rounds".format(entry_label))
+        else:
+            seen_evidence.add(evidence_identity)
+        if not check_paths or not path.is_file():
+            continue
+        evidence_report = load_json(path, report)
+        if not isinstance(evidence_report, dict):
+            continue
+        evidence_required = [
+            "schema_version", "task_id", "context_hash", "reviewer", "round",
+            "subject_value", "verdict", "blocking_findings", "attested_message",
+            "run_record",
+        ]
+        if context.get("schema_version") == "1.6":
+            evidence_required.append("execution_binding_hash")
+        if not require_keys(
+            evidence_report, evidence_required, "{} report".format(entry_label), report
+        ):
+            continue
+        if evidence_report["schema_version"] != LOCAL_REVIEW_EVIDENCE_SCHEMA:
+            report.error(
+                "{} report schema_version must be {}".format(
+                    entry_label, LOCAL_REVIEW_EVIDENCE_SCHEMA
+                )
+            )
+        expected_context_hash = (
+            task_authority_hash(context)
+            if context.get("schema_version") == "1.6"
+            else hashlib.sha256(context_path.read_bytes()).hexdigest()
+        )
+        expected_values = {
+            "task_id": context.get("task_id"),
+            "context_hash": expected_context_hash,
+            "reviewer": reviewer,
+            "round": round_number,
+            "subject_value": subject_value,
+        }
+        for key, expected in expected_values.items():
+            if evidence_report.get(key) != expected:
+                report.error(
+                    "{} report {} does not match its review round".format(
+                        entry_label, key
+                    )
+                )
+        evidence_verdict = evidence_report.get("verdict")
+        evidence_findings = evidence_report.get("blocking_findings")
+        if evidence_verdict not in ALLOWED_LOCAL_REVIEW_VERDICTS:
+            report.error(
+                "{} report verdict must be one of {}".format(
+                    entry_label,
+                    sorted(ALLOWED_LOCAL_REVIEW_VERDICTS),
+                )
+            )
+        if (
+            not isinstance(evidence_findings, int)
+            or isinstance(evidence_findings, bool)
+            or evidence_findings < 0
+        ):
+            report.error(
+                "{} report blocking_findings must be a non-negative integer".format(
+                    entry_label
+                )
+            )
+        elif evidence_verdict == "passed" and evidence_findings != 0:
+            report.error(
+                "{} passed report requires zero blocking findings".format(
+                    entry_label
+                )
+            )
+        elif evidence_verdict == "changes_requested" and evidence_findings == 0:
+            report.error(
+                "{} changes_requested report requires at least one blocking finding".format(
+                    entry_label
+                )
+            )
+        if (
+            evidence_verdict in ALLOWED_LOCAL_REVIEW_VERDICTS
+            and isinstance(evidence_findings, int)
+            and not isinstance(evidence_findings, bool)
+            and evidence_findings >= 0
+        ):
+            outcomes.append(
+                {
+                    "reviewer": reviewer,
+                    "verdict": evidence_verdict,
+                    "blocking_findings": evidence_findings,
+                }
+            )
+        expected_claim = {
+            "schema_version": "xiaoh-local-review-claim/v1",
+            **expected_values,
+            "verdict": evidence_verdict,
+            "blocking_findings": evidence_findings,
+        }
+        attested_message = evidence_report.get("attested_message")
+        if not isinstance(attested_message, str) or not attested_message.strip():
+            report.error("{} report attested_message must be non-empty".format(entry_label))
+            attested_message = ""
+        claim_matches = re.findall(
+            r"(?m)^xiaoh-local-review-claim: (\{.*\})$",
+            attested_message,
+        )
+        if len(claim_matches) != 1:
+            report.error(
+                "{} report attested_message must contain exactly one local review claim".format(
+                    entry_label
+                )
+            )
+            attested_claim = {}
+        else:
+            try:
+                attested_claim = json.loads(claim_matches[0])
+            except json.JSONDecodeError:
+                report.error("{} report attested claim must be valid JSON".format(entry_label))
+                attested_claim = {}
+        if attested_claim != expected_claim:
+            report.error("{} report attested claim does not match its review round".format(entry_label))
+        canonical_claim = json.dumps(
+            expected_claim, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        expected_claim_hash = hashlib.sha256(canonical_claim).hexdigest()
+        run_binding = evidence_report["run_record"]
+        if not require_keys(
+            run_binding, ["path", "sha256"], "{} report run_record".format(entry_label), report
+        ):
+            continue
+        run_path = Path(str(run_binding["path"])).expanduser()
+        run_digest = run_binding["sha256"]
+        if not run_path.is_absolute():
+            report.error("{} report run_record.path must be absolute".format(entry_label))
+            continue
+        if allowed_paths and not path_is_covered(str(run_path), allowed_paths):
+            report.error("{} report run_record.path is outside scope.allowed_paths".format(entry_label))
+        if not re.fullmatch(r"[0-9a-f]{64}", str(run_digest)):
+            report.error(
+                "{} report run_record.sha256 must be a lowercase SHA-256 digest".format(
+                    entry_label
+                )
+            )
+            continue
+        if not run_path.is_file():
+            report.error("{} report run_record.path does not exist".format(entry_label))
+            continue
+        if hashlib.sha256(run_path.read_bytes()).hexdigest() != run_digest:
+            report.error("{} report run_record.sha256 does not match".format(entry_label))
+            continue
+        run_record = load_json(run_path, report)
+        if not isinstance(run_record, dict):
+            continue
+        run_report = Report()
+        validate_run_record(run_record, run_report, check_paths=True)
+        for error in run_report.errors:
+            report.error("{} authenticated run record: {}".format(entry_label, error))
+        if run_record.get("task_id") != context.get("task_id"):
+            report.error("{} run record task_id does not match".format(entry_label))
+        if run_record.get("context_hash") != expected_context_hash:
+            report.error("{} run record context_hash does not match".format(entry_label))
+        if run_record.get("agent") != reviewer:
+            report.error("{} run record agent does not match reviewer".format(entry_label))
+        if run_record.get("status") != "completed":
+            report.error("{} run record must be completed".format(entry_label))
+        if run_record.get("schema_version") != "1.2":
+            report.error("{} run record must use schema 1.2".format(entry_label))
+        run_id = run_record.get("run_id")
+        if not isinstance(run_id, str) or not run_id.strip():
+            report.error("{} run record must have a stable run_id".format(entry_label))
+        elif run_id in seen_run_ids:
+            report.error("{} run record cannot be reused across review rounds".format(entry_label))
+        else:
+            seen_run_ids.add(run_id)
+        if run_digest in seen_run_digests:
+            report.error("{} run record content cannot be reused across review rounds".format(entry_label))
+        else:
+            seen_run_digests.add(run_digest)
+        runtime_evidence = run_record.get("runtime_evidence", {})
+        runtime_identities = (
+            (
+                "agent_id",
+                runtime_evidence.get("agent_id"),
+                seen_agent_ids,
+            ),
+            (
+                "transcript_hash",
+                runtime_evidence.get("transcript_hash"),
+                seen_transcript_hashes,
+            ),
+            (
+                "delegation_proof_hash",
+                runtime_evidence.get("delegation_proof_hash"),
+                seen_proof_hashes,
+            ),
+        )
+        for identity_name, identity_value, seen_values in runtime_identities:
+            if not isinstance(identity_value, str) or not identity_value.strip():
+                report.error(
+                    "{} run record lacks runtime_evidence.{}".format(
+                        entry_label, identity_name
+                    )
+                )
+            elif identity_value in seen_values:
+                report.error(
+                    "{} runtime_evidence.{} cannot be reused across review rounds".format(
+                        entry_label, identity_name
+                    )
+                )
+            else:
+                seen_values.add(identity_value)
+        proof_path = Path(str(runtime_evidence.get("delegation_proof_path", "")))
+        proof = load_json(proof_path, report) if proof_path.is_file() else None
+        required_proof_schema = (
+            "1.3" if context.get("schema_version") == "1.6" else "1.2"
+        )
+        if not isinstance(proof, dict) or proof.get("schema_version") != required_proof_schema:
+            report.error(
+                "{} local review requires an attested schema {} proof".format(
+                    entry_label, required_proof_schema
+                )
+            )
+        elif hashlib.sha256(attested_message.encode("utf-8")).hexdigest() != proof.get(
+            "last_message_hash"
+        ):
+            report.error(
+                "{} attested_message does not match delegation proof".format(entry_label)
+            )
+        if isinstance(proof, dict) and required_proof_schema == "1.3":
+            binding_hash = proof.get("execution_binding_hash")
+            task_name = proof.get("task_name")
+            if evidence_report.get("execution_binding_hash") != binding_hash:
+                report.error(
+                    "{} execution_binding_hash does not match delegation proof".format(
+                        entry_label
+                    )
+                )
+            if binding_hash in seen_binding_hashes:
+                report.error(
+                    "{} execution binding cannot be reused across review rounds".format(
+                        entry_label
+                    )
+                )
+            elif isinstance(binding_hash, str) and binding_hash:
+                seen_binding_hashes.add(binding_hash)
+            if task_name in seen_task_names:
+                report.error(
+                    "{} concrete task_name cannot be reused across review rounds".format(
+                        entry_label
+                    )
+                )
+            elif isinstance(task_name, str) and task_name:
+                seen_task_names.add(task_name)
+            if proof.get("review_round") != round_number:
+                report.error(
+                    "{} proof review_round does not match review round".format(entry_label)
+                )
+            if proof.get("purpose") != "local_review":
+                report.error(
+                    "{} proof purpose must be local_review".format(entry_label)
+                )
+            if proof.get("subject_digest") != subject_value:
+                report.error(
+                    "{} proof subject_digest does not match review subject".format(
+                        entry_label
+                    )
+                )
+        review_output = run_record.get("outputs", {}).get("local_review")
+        if not require_keys(
+            review_output,
+            [
+                "round", "subject_value", "verdict", "blocking_findings",
+                "claim_hash",
+            ],
+            "{} run record outputs.local_review".format(entry_label),
+            report,
+        ):
+            review_output = {}
+        output_expected = {
+            "round": round_number,
+            "subject_value": subject_value,
+            "verdict": evidence_verdict,
+            "blocking_findings": evidence_findings,
+            "claim_hash": expected_claim_hash,
+        }
+        for key, expected in output_expected.items():
+            if review_output.get(key) != expected:
+                report.error(
+                    "{} run record local_review.{} does not match".format(
+                        entry_label, key
+                    )
+                )
+        gates = run_record.get("gates")
+        verification = run_record.get("verification")
+        if (
+            not isinstance(gates, list)
+            or not gates
+            or any(item.get("status") != "passed" for item in gates if isinstance(item, dict))
+            or any(not isinstance(item, dict) for item in gates)
+        ):
+            report.error("{} run record gates must all pass".format(entry_label))
+        if not any(
+            isinstance(item, dict)
+            and item.get("name") == "independent_review"
+            and item.get("status") == "passed"
+            for item in gates or []
+        ):
+            report.error("{} run record lacks a passed independent_review gate".format(entry_label))
+        if (
+            not isinstance(verification, list)
+            or not verification
+            or any(
+                item.get("status") != "passed"
+                for item in verification
+                if isinstance(item, dict)
+            )
+            or any(not isinstance(item, dict) for item in verification)
+        ):
+            report.error("{} run record verification must all pass".format(entry_label))
+        accepted = run_record.get("metrics", {}).get("result_accepted")
+        if evidence_verdict == "passed" and accepted is not True:
+            report.error("{} passed review requires an accepted run record".format(entry_label))
+        if evidence_verdict == "changes_requested" and accepted is not False:
+            report.error(
+                "{} changes_requested review requires a non-accepted run record".format(
+                    entry_label
+                )
+            )
+    missing = set(reviewers) - set(evidence_reviewers)
+    if missing:
+        report.error(
+            "{}.evidence is missing reviewer reports for: {}".format(
+                label, ", ".join(sorted(missing))
+            )
+        )
+    duplicates = {
+        reviewer
+        for reviewer, count in Counter(evidence_reviewers).items()
+        if count > 1
+    }
+    if duplicates:
+        report.error(
+            "{}.evidence contains duplicate reviewer reports for: {}".format(
+                label, ", ".join(sorted(duplicates))
+            )
+        )
+    return outcomes
+
+
+def validate_local_review_manifest(
+    manifest,
+    context,
+    context_path,
+    report,
+    check_paths=True,
+):
+    required = [
+        "schema_version", "task_id", "task_context", "mode", "subject",
+        "implementers", "rounds", "final_status", "completed_at",
+    ]
+    if not require_keys(manifest, required, "local review manifest", report):
+        return
+    if manifest["schema_version"] != LOCAL_REVIEW_SCHEMA:
+        report.error("local review manifest schema_version must be {}".format(LOCAL_REVIEW_SCHEMA))
+    if manifest["task_id"] != context.get("task_id"):
+        report.error("local review manifest task_id does not match task context")
+    if context.get("task_type") != "implementation":
+        report.error("local review manifest requires an implementation task context")
+    context_binding = manifest["task_context"]
+    context_hash_key = (
+        "authority_hash"
+        if context.get("schema_version") == "1.6"
+        else "sha256"
+    )
+    if require_keys(
+        context_binding,
+        ["path", context_hash_key],
+        "local review task_context",
+        report,
+    ):
+        expected_path = context_path.resolve(strict=False)
+        bound_path = Path(str(context_binding["path"])).expanduser()
+        if not bound_path.is_absolute() or bound_path.resolve(strict=False) != expected_path:
+            report.error("local review task_context.path must bind the current context")
+        digest = context_binding[context_hash_key]
+        if not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
+            report.error(
+                "local review task_context.{} must be a lowercase SHA-256 digest".format(
+                    context_hash_key
+                )
+            )
+        elif check_paths and expected_path.is_file():
+            expected_digest = (
+                task_authority_hash(context)
+                if context.get("schema_version") == "1.6"
+                else hashlib.sha256(expected_path.read_bytes()).hexdigest()
+            )
+            if expected_digest != digest:
+                report.error(
+                    "local review task_context.{} does not match current context".format(
+                        context_hash_key
+                    )
+                )
+    expected_mode = (
+        "playbook_managed"
+        if context.get("playbook", {}).get("managed") is True
+        else "standalone"
+    )
+    if manifest["mode"] not in ALLOWED_LOCAL_REVIEW_MODES:
+        report.error(
+            "local review mode must be one of {}".format(
+                sorted(ALLOWED_LOCAL_REVIEW_MODES)
+            )
+        )
+    elif manifest["mode"] != expected_mode:
+        report.error("local review mode does not match playbook.managed")
+    selected_reviewers = set(
+        context.get("routing", {}).get("independent_review_agents", [])
+    )
+    implementers = validate_string_list(
+        manifest["implementers"], "local review implementers", report, non_empty=True
+    )
+    allowed_implementers = (
+        set(context.get("routing", {}).get("delegated_agents", [])) | {ROOT_AGENT}
+    )
+    unknown_implementers = set(implementers) - allowed_implementers
+    if unknown_implementers:
+        report.error(
+            "local review implementers were not selected by task context: {}".format(
+                ", ".join(sorted(unknown_implementers))
+            )
+        )
+    allowed_paths = context.get("scope", {}).get("allowed_paths", [])
+    subject = manifest["subject"]
+    subject_value = ""
+    subject_pattern = r"(?:[0-9a-f]{40}|[0-9a-f]{64})"
+    if require_keys(
+        subject,
+        ["kind", "repository", "artifact_path", "value"],
+        "local review subject",
+        report,
+    ):
+        kind = subject["kind"]
+        subject_value = str(subject["value"])
+        if kind not in ALLOWED_LOCAL_REVIEW_SUBJECTS:
+            report.error(
+                "local review subject.kind must be one of {}".format(
+                    sorted(ALLOWED_LOCAL_REVIEW_SUBJECTS)
+                )
+            )
+        if kind == "artifact_digest":
+            subject_pattern = r"[0-9a-f]{64}"
+        if not re.fullmatch(subject_pattern, subject_value):
+            report.error(
+                "local review subject.value must be a valid lowercase immutable digest"
+            )
+        repository_value = subject["repository"]
+        artifact_path_value = subject["artifact_path"]
+        if kind == "git_commit":
+            if artifact_path_value is not None:
+                report.error("git review subject.artifact_path must be null")
+            repository = Path(str(repository_value)).expanduser()
+            repositories = {
+                str(Path(value).expanduser().resolve(strict=False))
+                for value in context.get("scope", {}).get("repositories", [])
+            }
+            if len(repositories) != 1:
+                report.error(
+                    "git review subject requires exactly one scoped repository; "
+                    "use an artifact_digest manifest for multi-repository work"
+                )
+            if (
+                not repository.is_absolute()
+                or str(repository.resolve(strict=False)) not in repositories
+            ):
+                report.error("git review subject.repository must be a scoped repository")
+            elif check_paths:
+                try:
+                    completed = subprocess.run(
+                        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    worktree = subprocess.run(
+                        ["git", "-C", str(repository), "status", "--porcelain"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                except OSError as exc:
+                    report.error(
+                        "cannot inspect Git subject for local review: {}".format(exc)
+                    )
+                else:
+                    if completed.returncode != 0:
+                        report.error("cannot resolve current Git HEAD for local review subject")
+                    elif completed.stdout.strip() != subject_value:
+                        report.error("local review subject is stale because Git HEAD changed")
+                    if worktree.returncode != 0:
+                        report.error("cannot inspect current Git worktree for local review subject")
+                    elif worktree.stdout.strip():
+                        report.error(
+                            "git review subject requires a clean worktree with no unreviewed changes"
+                        )
+        elif repository_value is not None:
+            report.error("artifact_digest review subject.repository must be null")
+        if kind == "artifact_digest":
+            artifact_path = Path(str(artifact_path_value)).expanduser()
+            if not artifact_path.is_absolute():
+                report.error("artifact_digest subject.artifact_path must be absolute")
+            elif allowed_paths and not path_is_covered(str(artifact_path), allowed_paths):
+                report.error("artifact_digest subject.artifact_path is outside scope.allowed_paths")
+            elif check_paths and not artifact_path.is_file():
+                report.error("artifact_digest subject.artifact_path does not exist")
+            elif check_paths and hashlib.sha256(artifact_path.read_bytes()).hexdigest() != subject_value:
+                report.error(
+                    "artifact_digest subject.value does not match artifact_path content"
+                )
+            elif (
+                check_paths
+                and artifact_path.is_file()
+                and len(context.get("scope", {}).get("repositories", [])) > 1
+            ):
+                repository_manifest = load_json(artifact_path, report)
+                if not isinstance(repository_manifest, dict):
+                    report.error(
+                        "multi-repository artifact must be a JSON object"
+                    )
+                else:
+                    if not require_keys(
+                        repository_manifest,
+                        ["schema_version", "repositories"],
+                        "repository-set artifact",
+                        report,
+                    ):
+                        repository_manifest = {}
+                    if (
+                        repository_manifest.get("schema_version")
+                        != LOCAL_REVIEW_REPOSITORY_SET_SCHEMA
+                    ):
+                        report.error(
+                            "multi-repository artifact must use {}".format(
+                                LOCAL_REVIEW_REPOSITORY_SET_SCHEMA
+                            )
+                        )
+                    entries = repository_manifest.get("repositories")
+                    if not isinstance(entries, list) or not entries:
+                        report.error(
+                            "repository-set artifact.repositories must be a non-empty list"
+                        )
+                    else:
+                        declared = {}
+                        for index, entry in enumerate(entries):
+                            entry_label = "repository-set artifact.repositories[{}]".format(index)
+                            if not require_keys(
+                                entry, ["path", "commit"], entry_label, report
+                            ):
+                                continue
+                            repo_path = Path(str(entry["path"])).expanduser()
+                            commit = str(entry["commit"])
+                            resolved = str(repo_path.resolve(strict=False))
+                            if not repo_path.is_absolute():
+                                report.error("{}.path must be absolute".format(entry_label))
+                            if resolved in declared:
+                                report.error("repository-set artifact contains duplicate repository")
+                            declared[resolved] = commit
+                            if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", commit):
+                                report.error(
+                                    "{}.commit must be a Git object ID".format(entry_label)
+                                )
+                                continue
+                            try:
+                                head = subprocess.run(
+                                    ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+                                    capture_output=True,
+                                    text=True,
+                                    check=False,
+                                )
+                                dirty = subprocess.run(
+                                    ["git", "-C", str(repo_path), "status", "--porcelain"],
+                                    capture_output=True,
+                                    text=True,
+                                    check=False,
+                                )
+                            except OSError as exc:
+                                report.error(
+                                    "{} cannot inspect repository: {}".format(
+                                        entry_label, exc
+                                    )
+                                )
+                                continue
+                            if head.returncode != 0 or head.stdout.strip() != commit:
+                                report.error(
+                                    "{} commit does not match current HEAD".format(entry_label)
+                                )
+                            if dirty.returncode != 0 or dirty.stdout.strip():
+                                report.error(
+                                    "{} repository must have a clean worktree".format(entry_label)
+                                )
+                        expected_repositories = {
+                            str(Path(value).expanduser().resolve(strict=False))
+                            for value in context.get("scope", {}).get("repositories", [])
+                        }
+                        if set(declared) != expected_repositories:
+                            report.error(
+                                "repository-set artifact must cover every scoped repository exactly once"
+                            )
+    rounds = manifest["rounds"]
+    if not isinstance(rounds, list) or len(rounds) < 2:
+        report.error("local review requires at least two review rounds")
+        rounds = []
+    final_round_reviewers = set()
+    seen_evidence = set()
+    seen_run_ids = set()
+    seen_run_digests = set()
+    seen_agent_ids = set()
+    seen_transcript_hashes = set()
+    seen_proof_hashes = set()
+    seen_binding_hashes = set()
+    seen_task_names = set()
+    for index, item in enumerate(rounds):
+        label = "local review rounds[{}]".format(index)
+        if not require_keys(
+            item,
+            [
+                "number", "subject_value", "reviewers", "verdict",
+                "blocking_findings", "evidence",
+            ],
+            label,
+            report,
+        ):
+            continue
+        if item["number"] != index + 1:
+            report.error("{}.number must be sequential starting at 1".format(label))
+        if not re.fullmatch(
+            subject_pattern, str(item["subject_value"])
+        ):
+            report.error("{}.subject_value must be a valid immutable digest".format(label))
+        reviewers = set(
+            validate_string_list(
+                item["reviewers"], "{}.reviewers".format(label), report, non_empty=True
+            )
+        )
+        if len(reviewers) < 2:
+            report.error("{} requires at least two distinct reviewers".format(label))
+        if (
+            subject.get("kind") == "git_commit"
+            and not {"code_quality_reviewer", "test_integration_verifier"} <= reviewers
+        ):
+            report.error(
+                "{} Git review requires code_quality_reviewer and test_integration_verifier".format(
+                    label
+                )
+            )
+        if not reviewers <= selected_reviewers:
+            report.error("{} contains reviewers outside task context routing".format(label))
+        if reviewers & set(implementers):
+            report.error("{} reviewers must be independent from implementers".format(label))
+        if reviewers & ({ROOT_AGENT} | IMPLEMENTATION_AGENTS):
+            report.error("{} contains a coordinator or implementation role".format(label))
+        if item["verdict"] not in ALLOWED_LOCAL_REVIEW_VERDICTS:
+            report.error(
+                "{}.verdict must be one of {}".format(
+                    label, sorted(ALLOWED_LOCAL_REVIEW_VERDICTS)
+                )
+            )
+        findings = item["blocking_findings"]
+        if not isinstance(findings, int) or isinstance(findings, bool) or findings < 0:
+            report.error("{}.blocking_findings must be a non-negative integer".format(label))
+        if item["verdict"] == "passed" and findings != 0:
+            report.error("{} passed verdict requires zero blocking findings".format(label))
+        outcomes = validate_local_review_evidence(
+            item["evidence"],
+            reviewers,
+            allowed_paths,
+            label,
+            report,
+            check_paths,
+            context=context,
+            context_path=context_path,
+            round_number=item["number"],
+            subject_value=str(item["subject_value"]),
+            seen_evidence=seen_evidence,
+            seen_run_ids=seen_run_ids,
+            seen_run_digests=seen_run_digests,
+            seen_agent_ids=seen_agent_ids,
+            seen_transcript_hashes=seen_transcript_hashes,
+            seen_proof_hashes=seen_proof_hashes,
+            seen_binding_hashes=seen_binding_hashes,
+            seen_task_names=seen_task_names,
+        )
+        expected_verdict = (
+            "changes_requested"
+            if any(
+                outcome.get("verdict") == "changes_requested"
+                for outcome in outcomes
+            )
+            else "passed"
+        )
+        expected_findings = sum(
+            outcome.get("blocking_findings", 0)
+            for outcome in outcomes
+        )
+        if item["verdict"] != expected_verdict:
+            report.error(
+                "{}.verdict does not aggregate reviewer evidence".format(label)
+            )
+        if findings != expected_findings:
+            report.error(
+                "{}.blocking_findings must equal the sum of reviewer findings".format(
+                    label
+                )
+            )
+        if index == len(rounds) - 1:
+            final_round_reviewers = reviewers
+            if item["subject_value"] != subject_value:
+                report.error("final review round does not bind the current subject")
+            if item["verdict"] != "passed":
+                report.error("final review round must pass")
+    missing_final_reviewers = selected_reviewers - final_round_reviewers
+    if missing_final_reviewers:
+        report.error(
+            "final review round is missing configured independent reviewers: {}".format(
+                ", ".join(sorted(missing_final_reviewers))
+            )
+        )
+    if manifest["final_status"] != "passed":
+        report.error("local review final_status must be passed")
+    parse_timestamp(manifest["completed_at"], "local review completed_at", report)
+    sensitive = find_sensitive_keys(manifest)
+    if sensitive:
+        report.error(
+            "local review manifest contains forbidden sensitive fields: {}".format(
+                ", ".join(sensitive)
+            )
+        )
 
 
 def validate_intent(intent, context, report):
@@ -1647,16 +3093,22 @@ def validate_run_record(data, report, check_paths=True):
         report.error("ended_at must not be earlier than started_at")
     context_path = Path(str(data["context_pack"]))
     context = None
-    if check_paths and not context_path.exists():
-        report.error("context_pack does not exist: {}".format(context_path))
-    elif check_paths:
-        actual_hash = hashlib.sha256(context_path.read_bytes()).hexdigest()
-        if actual_hash != data["context_hash"]:
-            report.error("context_hash does not match {}".format(context_path))
+    if not context_path.exists():
+        if check_paths:
+            report.error("context_pack does not exist: {}".format(context_path))
+    else:
         try:
             context = json.loads(context_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             report.error("cannot load context_pack {}: {}".format(context_path, exc))
+        else:
+            actual_hash = (
+                task_authority_hash(context)
+                if context.get("schema_version") == "1.6"
+                else hashlib.sha256(context_path.read_bytes()).hexdigest()
+            )
+            if actual_hash != data["context_hash"]:
+                report.error("context_hash does not match {}".format(context_path))
     if isinstance(context, dict):
         if data["task_id"] != context.get("task_id"):
             report.error("run record task_id does not match context_pack")
@@ -1692,9 +3144,22 @@ def validate_run_record(data, report, check_paths=True):
                 report.error("runtime_evidence.source must be codex-runtime")
             if runtime_evidence["agent_type"] != data.get("agent"):
                 report.error("runtime_evidence.agent_type must match run record agent")
-            expected_task_name = context.get("routing", {}).get("delegation_names", {}).get(data.get("agent")) if isinstance(context, dict) else None
-            if runtime_evidence["task_name"] != expected_task_name:
-                report.error("runtime_evidence.task_name must match context routing.delegation_names")
+            if isinstance(context, dict) and context.get("schema_version") == "1.6":
+                prefix = context.get("routing", {}).get(
+                    "delegation_policies", {}
+                ).get(data.get("agent"), {}).get("task_name_prefix")
+                if (
+                    not isinstance(prefix, str)
+                    or not re.fullmatch(
+                        re.escape(prefix) + r"__r[1-9][0-9]*__[0-9a-f]{8,64}",
+                        runtime_evidence["task_name"],
+                    )
+                ):
+                    report.error("runtime_evidence.task_name is outside its authorized namespace")
+            else:
+                expected_task_name = context.get("routing", {}).get("delegation_names", {}).get(data.get("agent")) if isinstance(context, dict) else None
+                if runtime_evidence["task_name"] != expected_task_name:
+                    report.error("runtime_evidence.task_name must match context routing.delegation_names")
             for key in ("agent_id", "parent_agent_id"):
                 if not isinstance(runtime_evidence[key], str) or not runtime_evidence[key].strip():
                     report.error("runtime_evidence.{} must be a non-empty string".format(key))
@@ -2411,7 +3876,11 @@ def load_context_chain(context_path, report):
             check_playbook_freshness=False,
             check_playbook_live_status=False,
         )
-        digest = hashlib.sha256(current_path.read_bytes()).hexdigest()
+        digest = (
+            task_authority_hash(context)
+            if context.get("schema_version") == "1.6"
+            else hashlib.sha256(current_path.read_bytes()).hexdigest()
+        )
         chain.append((current_path, digest, context))
         previous = context.get("previous_context")
         if previous is None:
@@ -2430,6 +3899,23 @@ def validate_task_closure(context_path, run_directory, report):
     if not chain:
         return
     context = chain[0][2]
+    if context.get("task_type") == "implementation":
+        manifests = []
+        for path in sorted(run_directory.glob("*.json")):
+            candidate = load_json(path, Report())
+            if (
+                isinstance(candidate, dict)
+                and candidate.get("schema_version") == LOCAL_REVIEW_SCHEMA
+            ):
+                manifests.append((path, candidate))
+        if len(manifests) != 1:
+            report.error(
+                "implementation task closure requires exactly one current local review manifest"
+            )
+        else:
+            validate_local_review_manifest(
+                manifests[0][1], context, context_path, report, check_paths=True
+            )
     accepted_contexts = {(str(chain[0][0]), chain[0][1])}
     records = []
     for path in sorted(run_directory.glob("*.json")):
@@ -2469,7 +3955,7 @@ def validate_task_closure(context_path, run_directory, report):
         report.error("task closure missing completed required agents: {}".format(", ".join(sorted(missing))))
     duplicate_agents = {
         agent for agent, count in Counter(record["agent"] for record in completed_records).items()
-        if count > 1
+        if count > 1 and agent not in reviewers
     }
     if duplicate_agents:
         report.error("task closure contains conflicting completed records for: {}".format(", ".join(sorted(duplicate_agents))))
@@ -2597,6 +4083,12 @@ def self_test(report):
             report.error("high-risk scope-reduction review denial self-test failed")
         business_context = json.loads((SYSTEM_DIR / "task-context.template.json").read_text(encoding="utf-8"))
         business_context["intent"]["domain"] = "business_project"
+        business_context["scope"].update({
+            "workspace": str(Path(tempfile.gettempdir())),
+            "allowed_paths": [str(Path(tempfile.gettempdir()))],
+        })
+        for source in business_context["sources"]:
+            source["path"] = str(Path(tempfile.gettempdir()) / Path(source["path"]).name)
         business_context["memory_recall"] = example_memory_recall()
         business_context["requirements"] = example_requirements()
         business_report = Report()
@@ -2610,7 +4102,7 @@ def self_test(report):
         legacy_gate_report = Report()
         validate_task_context(legacy_business, legacy_gate_report, check_paths=False)
         validate_requirement_gate(legacy_business, "task_create", legacy_gate_report, check_paths=False)
-        if not any("require schema 1.5" in error for error in legacy_gate_report.errors):
+        if not any("require schema 1.6" in error for error in legacy_gate_report.errors):
             report.error("legacy lifecycle gate denial self-test failed")
         pending_recall = json.loads(json.dumps(business_context))
         pending_recall["memory_recall"] = {
@@ -2781,7 +4273,11 @@ def self_test(report):
             current_context["previous_context"] = {"path": str(old_context_path), "hash": old_hash}
             current_context_path = run_dir / "context.r2.json"
             current_context_path.write_text(json.dumps(current_context), encoding="utf-8")
-            current_hash = hashlib.sha256(current_context_path.read_bytes()).hexdigest()
+            current_hash = (
+                task_authority_hash(current_context)
+                if current_context.get("schema_version") == "1.6"
+                else hashlib.sha256(current_context_path.read_bytes()).hexdigest()
+            )
             old_run = json.loads(json.dumps(closure_record))
             old_run["run_id"] = "head-only-old"
             old_run["context_pack"] = str(old_context_path)
@@ -2861,8 +4357,16 @@ def main():
             stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task-context", type=Path)
+    parser.add_argument("--authority-hash", type=Path)
+    parser.add_argument("--execution-binding", type=Path)
+    parser.add_argument("--migrate-task-context", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--local-review-manifest", type=Path)
     parser.add_argument("--requirement-gate", type=Path)
     parser.add_argument("--action", choices=sorted(ALLOWED_REQUIREMENT_GATE_ACTIONS))
+    parser.add_argument("--playbook-receipt", type=Path)
+    parser.add_argument("--playbook-receipt-sha256")
+    parser.add_argument("--delegated-execution-binding", type=Path)
     parser.add_argument("--run-record", type=Path)
     parser.add_argument("--close-task-context", type=Path)
     parser.add_argument("--run-dir", type=Path)
@@ -2885,14 +4389,107 @@ def main():
     parser.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args()
     report = Report()
-    if args.requirement_gate:
+    if args.migrate_task_context:
+        if not args.output:
+            report.error("--migrate-task-context requires --output")
+        elif args.output.exists():
+            report.error("--output already exists; migration never overwrites evidence")
+        else:
+            source = load_json(args.migrate_task_context, report)
+            if source is not None:
+                validate_task_context(source, report)
+            if source is not None and not report.errors:
+                try:
+                    migrated = migrate_task_context_15_to_16(
+                        source, args.migrate_task_context
+                    )
+                except (KeyError, ValueError) as exc:
+                    report.error("task context migration failed: {}".format(exc))
+                else:
+                    migrated_report = Report()
+                    validate_task_context(migrated, migrated_report)
+                    for error in migrated_report.errors:
+                        report.error("migrated task context: {}".format(error))
+                    if not report.errors:
+                        args.output.parent.mkdir(parents=True, exist_ok=True)
+                        descriptor, temporary_name = tempfile.mkstemp(
+                            prefix=".task-context-", dir=args.output.parent
+                        )
+                        try:
+                            with os.fdopen(
+                                descriptor, "w", encoding="utf-8", newline="\n"
+                            ) as stream:
+                                json.dump(
+                                    migrated,
+                                    stream,
+                                    ensure_ascii=False,
+                                    sort_keys=True,
+                                    indent=2,
+                                )
+                                stream.write("\n")
+                                stream.flush()
+                                os.fsync(stream.fileno())
+                            os.link(temporary_name, args.output)
+                        finally:
+                            if os.path.exists(temporary_name):
+                                os.unlink(temporary_name)
+                        report.details["migrated_task_context"] = str(
+                            args.output.resolve()
+                        )
+                        report.details["authority_hash"] = task_authority_hash(
+                            migrated
+                        )
+    elif args.authority_hash:
+        data = load_json(args.authority_hash, report)
+        if data is not None:
+            validate_task_context(data, report)
+            if not report.errors:
+                report.details["authority_hash"] = task_authority_hash(data)
+    elif args.execution_binding:
+        if not args.task_context:
+            report.error("--execution-binding requires --task-context")
+        else:
+            context = load_json(args.task_context, report)
+            binding = load_json(args.execution_binding, report)
+            if context is not None:
+                validate_task_context(context, report)
+            if binding is not None and context is not None and not report.errors:
+                validate_execution_binding(
+                    binding, context, args.task_context, report
+                )
+    elif args.local_review_manifest:
+        if not args.task_context:
+            report.error("--local-review-manifest requires --task-context")
+        else:
+            context = load_json(args.task_context, report)
+            manifest = load_json(args.local_review_manifest, report)
+            if context is not None:
+                validate_task_context(context, report)
+            if manifest is not None and context is not None and not report.errors:
+                validate_local_review_manifest(
+                    manifest, context, args.task_context, report
+                )
+    elif args.requirement_gate:
         data = load_json(args.requirement_gate, report)
+        delegated_binding = (
+            load_json(args.delegated_execution_binding, report)
+            if args.delegated_execution_binding
+            else None
+        )
         if not args.action:
             report.error("--requirement-gate requires --action")
         elif data is not None:
             validate_task_context(data, report)
             if not report.errors:
-                validate_requirement_gate(data, args.action, report)
+                validate_requirement_gate(
+                    data,
+                    args.action,
+                    report,
+                    root_playbook_receipt=args.playbook_receipt,
+                    root_playbook_receipt_sha256=args.playbook_receipt_sha256,
+                    delegated_execution_binding=delegated_binding,
+                    delegated_execution_binding_context_path=args.requirement_gate,
+                )
     elif args.task_context:
         data = load_json(args.task_context, report)
         if data is not None:

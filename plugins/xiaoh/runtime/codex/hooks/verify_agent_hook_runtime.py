@@ -4,14 +4,93 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import hashlib
 import json
 import os
 import queue
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 from pathlib import Path
+
+
+RUNTIME_PROBE_ATTEMPTS = 3
+RUNTIME_RESPONSE_TIMEOUT_SECONDS = 15
+RUNTIME_PROBE_LOCK_TIMEOUT_SECONDS = 60
+
+
+class RuntimeProbeTimeout(RuntimeError):
+    """The app-server did not answer a runtime probe request in time."""
+
+
+def runtime_probe_lock_path(codex_home: Path) -> Path:
+    identity = hashlib.sha256(
+        str(codex_home.resolve()).encode("utf-8")
+    ).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / "xiaoh-runtime-probe-{}.lock".format(
+        identity
+    )
+
+
+def try_lock(handle) -> bool:
+    handle.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+    import fcntl
+
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def unlock(handle) -> None:
+    handle.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def runtime_probe_lock(
+    codex_home: Path,
+    *,
+    timeout_seconds: int = RUNTIME_PROBE_LOCK_TIMEOUT_SECONDS,
+):
+    lock_path = runtime_probe_lock_path(codex_home)
+    with lock_path.open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        deadline = time.monotonic() + timeout_seconds
+        while not try_lock(handle):
+            if time.monotonic() >= deadline:
+                raise RuntimeProbeTimeout(
+                    "Codex app-server runtime probe lock remained busy for "
+                    "{} seconds: {}".format(timeout_seconds, lock_path)
+                )
+            time.sleep(0.1)
+        try:
+            yield
+        finally:
+            unlock(handle)
 
 
 def command_for(executable: str) -> list[str]:
@@ -28,9 +107,18 @@ def read_messages(stream, output: queue.Queue) -> None:
             continue
 
 
-def wait_for(output: queue.Queue, request_id: int) -> dict:
+def wait_for(output: queue.Queue, request_id: int, request_name: str) -> dict:
     while True:
-        message = output.get(timeout=15)
+        try:
+            message = output.get(timeout=RUNTIME_RESPONSE_TIMEOUT_SECONDS)
+        except queue.Empty as exc:
+            raise RuntimeProbeTimeout(
+                "Codex app-server {} request id={} timed out after {} seconds".format(
+                    request_name,
+                    request_id,
+                    RUNTIME_RESPONSE_TIMEOUT_SECONDS,
+                )
+            ) from exc
         if message.get("id") == request_id:
             if "error" in message:
                 raise RuntimeError(str(message["error"]))
@@ -42,10 +130,7 @@ def send(process: subprocess.Popen, message: dict) -> None:
     process.stdin.flush()
 
 
-def verify(codex_home: Path, cwd: Path) -> None:
-    executable = shutil.which("codex")
-    if not executable:
-        raise RuntimeError("未找到 codex 命令，无法读取实际 Hook 运行时状态")
+def query_hooks(executable: str, codex_home: Path, cwd: Path) -> dict:
     process = subprocess.Popen(
         command_for(executable),
         stdin=subprocess.PIPE,
@@ -61,18 +146,51 @@ def verify(codex_home: Path, cwd: Path) -> None:
             "method": "initialize", "id": 0,
             "params": {"clientInfo": {"name": "xiaoh_gate_verifier", "title": "XiaoH Gate Verifier", "version": "1.0.0"}},
         })
-        initialized = wait_for(output, 0)
+        initialized = wait_for(output, 0, "initialize")
         if Path(initialized["codexHome"]).resolve() != codex_home.resolve():
             raise RuntimeError("Codex 实际 CODEX_HOME 与验收目标不一致")
         send(process, {"method": "initialized", "params": {}})
         send(process, {"method": "hooks/list", "id": 1, "params": {"cwds": [str(cwd.resolve())]}})
-        result = wait_for(output, 1)
+        return wait_for(output, 1, "hooks/list")
     finally:
         process.terminate()
         try:
             process.wait(timeout=3)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+def query_hooks_with_retry(
+    executable: str,
+    codex_home: Path,
+    cwd: Path,
+    *,
+    attempts: int = RUNTIME_PROBE_ATTEMPTS,
+) -> dict:
+    failures = []
+    for attempt in range(1, attempts + 1):
+        try:
+            return query_hooks(executable, codex_home, cwd)
+        except RuntimeProbeTimeout as exc:
+            failures.append("attempt {}/{}: {}".format(attempt, attempts, exc))
+    raise RuntimeProbeTimeout(
+        "Codex app-server runtime probe exhausted retries; {}".format(
+            "; ".join(failures)
+        )
+    )
+
+
+def verify(codex_home: Path, cwd: Path) -> None:
+    if os.environ.get("CODEX_SANDBOX"):
+        raise RuntimeError(
+            "Codex app-server运行时验收不能在工具沙盒内执行；"
+            "请批准doctor --runtime在非沙盒环境运行"
+        )
+    executable = shutil.which("codex")
+    if not executable:
+        raise RuntimeError("未找到 codex 命令，无法读取实际 Hook 运行时状态")
+    with runtime_probe_lock(codex_home):
+        result = query_hooks_with_retry(executable, codex_home, cwd)
 
     expected_source = (codex_home / "config.toml").resolve()
     delegation_scripts = [codex_home / "hooks/block_reserved_root_agent.py"]

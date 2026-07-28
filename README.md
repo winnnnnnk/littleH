@@ -23,7 +23,7 @@ README用于安装和快速使用。小H自身实现以及小H与Playbook的协�
 | macOS | `install.sh` | Python、JSON、隔离安装、Hook自检 |
 | Windows | `install-windows.cmd`或`install.ps1` | Python、JSON、隔离安装、跨平台Python Hook自检 |
 
-两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看个人研发系统时安装，不是小H初始化的硬依赖；使用原生Bases视图建议Obsidian 1.9或更高版本。小H自己的18个Skill随插件发布；配套Codex插件由初始化程序根据机器可读清单自动安装。
+两端都需要Git、Python 3和Codex CLI。Obsidian只在需要查看个人研发系统时安装，不是小H初始化的硬依赖；使用原生Bases视图建议Obsidian 1.9或更高版本。小H自己的19个Skill随插件发布；配套Codex插件由初始化程序根据机器可读清单自动安装。
 
 ## 从GitHub安装
 
@@ -85,7 +85,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 
 依赖事实源是`plugins/xiaoh/dependencies.json`，不是README中的人工步骤：
 
-- 18个小H Skill随插件安装；Workspace归属、项目历史召回、Playbook只读适配、业务需求与设计基线、任务即时收口和项目进度维护按工作阶段调用，每日成果推送和每周知识候选评审作为托管定时任务模板发布。
+- 19个小H Skill随插件安装；Workspace归属、项目历史召回、本地多角色评审、Playbook只读适配、业务需求与设计基线、任务即时收口和项目进度维护按工作阶段调用，每日成果推送和每周知识候选评审作为托管定时任务模板发布。
 - Ponytail以及Codex提供的浏览器、文档、PDF、表格、演示、站点和可视化插件由初始化程序自动检测并安装。
 - `codebase-memory-mcp`是可选的本机增强能力。小H只检测其是否存在，不会下载或执行第三方远程安装脚本；缺失时自动使用本地代码搜索，不影响核心运行。
 - `playbook`是按任务激活的可选外部受管研发平台。小H不安装、不修改也不升级Playbook；没有Playbook的用户默认得到完整核心能力。
@@ -113,6 +113,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
 - `xiaoh-workspace-routing`：首次确认Workspace的项目和系统归属并持久化；后续自动识别，冲突时停止业务写回；Windows与macOS路径按平台绑定，换机后保留旧绑定并重新核对本机路径。
 - `xiaoh-project-recall`：Workspace识别后定向读取相关项目进度、任务收口、规范需求基线和已晋升知识，并与当前代码、配置和任务状态对账；哈希清单未通过时不进入需求路由或正式委派。
 - `xiaoh-playbook-adapter`：仅在任务明确由Playbook管理时调用；从现有worker JSON和只读task status JSON生成短时、可校验的委派绑定，不创建第二套任务状态。
+- `xiaoh-local-review`：所有代码实现先经过至少两个独立判断角色的一轮多角色评审和修复后收敛复审，并把最终结论绑定当前Git HEAD或不可变工件摘要；独立模式以此作为交付门禁，受管模式通过后才进入Playbook远程评审。
 - 公共交互门禁：所有专业Agent都必须区分提问、假设、事实纠正、业务决策和执行指令，并在输出中给出证据依据、重大冲突、不确定项和推荐结论。
 - `xiaoh-requirement-routing`：在业务任务进入成员确认、任务创建、OpenSpec或实现前，选择`openspec_only`、`spec_rfc_then_openspec`或`class_skill`，并执行需求工件门禁。
 - Spec+RFC路线固定执行两道评审：先用`xiaoh:spec-rfc-reviewer`审核源工件准入质量；生成OpenSpec后再用`xiaoh:spec-rfc-openspec-consistency-review`审核完整承接与语义一致性。`xiaoh:`只表示插件来源，不表示子Agent；校验器兼容已有的无前缀全局副本。
@@ -157,6 +158,14 @@ python3 plugins/xiaoh/scripts/xiaoh.py doctor --json
 python3 ~/.codex/agent-system/validate.py \
   --requirement-gate /absolute/path/to/task-context.json \
   --action task_create
+```
+
+实现任务在交付、Playbook远程评审或收口前验证本地评审清单：
+
+```bash
+python3 ~/.codex/agent-system/validate.py \
+  --local-review-manifest /absolute/path/to/local-review-manifest.json \
+  --task-context /absolute/path/to/task-context.json
 ```
 
 插件发布前还需运行Plugin与Skill校验器。详见[SECURITY.md](SECURITY.md)。

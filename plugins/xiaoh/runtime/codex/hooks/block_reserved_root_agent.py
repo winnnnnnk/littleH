@@ -12,7 +12,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,10 @@ HEADER_PATTERNS = {
     "task_id": re.compile(r"^task_id:\s*(\S+)\s*$", re.MULTILINE),
     "task_context": re.compile(r"^task_context:\s*(.+?)\s*$", re.MULTILINE),
     "context_hash": re.compile(r"^context_hash:\s*([0-9a-fA-F]{64})\s*$", re.MULTILINE),
+    "authority_hash": re.compile(r"^authority_hash:\s*([0-9a-fA-F]{64})\s*$", re.MULTILINE),
     "delegated_agent": re.compile(r"^delegated_agent:\s*([A-Za-z0-9_-]+)\s*$", re.MULTILINE),
+    "execution_binding": re.compile(r"^execution_binding:\s*(.+?)\s*$", re.MULTILINE),
+    "binding_hash": re.compile(r"^binding_hash:\s*([0-9a-fA-F]{64})\s*$", re.MULTILINE),
 }
 RECEIPT_PATTERN = re.compile(r"(?m)^xiaoh-delegation-receipt:\s*([0-9a-f]{64})\s*$")
 REQUIREMENT_GATE_ACTIONS = {
@@ -74,18 +77,27 @@ def blocked_name(tool_input: dict[str, Any]) -> str | None:
 
 def delegation_headers(message: Any) -> tuple[dict[str, str], list[str], list[str]]:
     if not isinstance(message, str):
-        return {}, list(HEADER_PATTERNS), []
+        return {}, ["task_id", "task_context", "delegated_agent", "context_hash/authority_hash"], []
     values: dict[str, str] = {}
-    missing: list[str] = []
     duplicates: list[str] = []
     for key, pattern in HEADER_PATTERNS.items():
         matches = list(pattern.finditer(message))
-        if not matches:
-            missing.append(key)
-        elif len(matches) > 1:
+        if len(matches) > 1:
             duplicates.append(key)
-        else:
+        elif matches:
             values[key] = matches[0].group(1).strip()
+    missing = [
+        key for key in ("task_id", "task_context", "delegated_agent")
+        if key not in values
+    ]
+    hash_headers = [key for key in ("context_hash", "authority_hash") if key in values]
+    if not hash_headers:
+        missing.append("context_hash/authority_hash")
+    elif len(hash_headers) > 1:
+        duplicates.append("context_hash/authority_hash")
+    binding_headers = [key for key in ("execution_binding", "binding_hash") if key in values]
+    if len(binding_headers) == 1:
+        missing.append(next(key for key in ("execution_binding", "binding_hash") if key not in values))
     return values, missing, duplicates
 
 
@@ -101,13 +113,14 @@ def write_delegation_proof(
     hook_path = (home / "hooks" / "block_reserved_root_agent.py").resolve()
     hook_bytes = hook_path.read_bytes()
     message = tool_input["message"]
+    binding_hash = headers.get("authority_hash", headers.get("context_hash", "")).casefold()
     proof = {
         "schema_version": "1.0",
         "issued_at": datetime.now(timezone.utc).isoformat(),
         **runtime_ids,
         "task_id": headers["task_id"],
         "task_context": str(Path(headers["task_context"]).resolve()),
-        "context_hash": headers["context_hash"].casefold(),
+        "context_hash": binding_hash,
         "delegated_agent": headers["delegated_agent"],
         "agent_type": tool_input["agent_type"],
         "task_name": tool_input["task_name"],
@@ -115,7 +128,11 @@ def write_delegation_proof(
         "hook_path": str(hook_path),
         "hook_hash": hashlib.sha256(hook_bytes).hexdigest(),
     }
-    proof_directory = home / "agent-system" / "delegation-proofs" / proof["context_hash"]
+    if "authority_hash" in headers:
+        proof["authority_hash"] = binding_hash
+        proof["execution_binding"] = headers.get("execution_binding")
+        proof["binding_hash"] = headers.get("binding_hash")
+    proof_directory = home / "agent-system" / "delegation-proofs" / binding_hash
     proof_directory.mkdir(parents=True, exist_ok=True)
     filename = hashlib.sha256(runtime_ids["tool_use_id"].encode("utf-8")).hexdigest() + ".json"
     descriptor, temporary_name = tempfile.mkstemp(prefix=".proof-", dir=proof_directory)
@@ -141,6 +158,8 @@ def pending_path(home: Path, session_id: str, agent_type: str) -> Path:
 
 
 def managed_playbook_binding(context: dict[str, Any], delegated_agent: str) -> dict[str, Any]:
+    if context.get("schema_version") == "1.6":
+        return {}
     playbook = context.get("playbook")
     if (
         context.get("intent", {}).get("domain") != "business_project"
@@ -155,6 +174,7 @@ def managed_playbook_binding(context: dict[str, Any], delegated_agent: str) -> d
         "delegated_action": action,
         "playbook_adapter_receipt": playbook.get("adapter_receipt"),
         "playbook_adapter_receipt_sha256": playbook.get("adapter_receipt_sha256"),
+        "playbook_binding_kind": playbook.get("binding_kind") or "worker",
         "playbook_task_workspace_id": playbook.get("task_workspace_id"),
         "playbook_member": playbook.get("member"),
         "playbook_member_worktree": playbook.get("member_worktree"),
@@ -174,7 +194,31 @@ def effective_brief(
     headers: dict[str, str],
     tool_input: dict[str, Any],
     context: dict[str, Any] | None = None,
+    binding: dict[str, Any] | None = None,
+    binding_path: Path | None = None,
+    binding_hash: str | None = None,
 ) -> dict[str, Any]:
+    if context is not None and context.get("schema_version") == "1.6":
+        brief = {
+            "schema_version": "1.2",
+            "task_id": headers["task_id"],
+            "task_context": str(Path(headers["task_context"]).resolve()),
+            "authority_hash": headers["authority_hash"].casefold(),
+            "delegated_agent": headers["delegated_agent"],
+            "agent_type": tool_input["agent_type"],
+            "task_name": tool_input["task_name"],
+            "action": binding["action"] if binding else None,
+            "execution_binding": str(binding_path.resolve()) if binding_path else headers.get("execution_binding"),
+            "binding_hash": binding_hash or headers.get("binding_hash"),
+            "authority": "task_context_and_one_time_execution_binding",
+        }
+        if binding and binding.get("playbook_adapter_receipt"):
+            brief["authority"] = "task_context_execution_binding_and_playbook_receipt"
+            brief["playbook_adapter_receipt"] = binding["playbook_adapter_receipt"]
+            brief["playbook_adapter_receipt_sha256"] = binding[
+                "playbook_adapter_receipt_sha256"
+            ]
+        return brief
     brief = {
         "schema_version": "1.0",
         "task_id": headers["task_id"],
@@ -246,6 +290,24 @@ def canonical_hash(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def authority_hash(context: dict[str, Any]) -> str:
+    if context.get("schema_version") != "1.6":
+        raise ValueError("authority hash requires schema 1.6")
+    return canonical_hash(context)
+
+
+def delegation_policy(context: dict[str, Any], agent: str) -> dict[str, str]:
+    routing = context.get("routing")
+    policies = routing.get("delegation_policies") if isinstance(routing, dict) else None
+    policy = policies.get(agent) if isinstance(policies, dict) else None
+    if not isinstance(policy, dict):
+        raise ValueError("delegation policy")
+    required = ("agent_type", "action", "task_name_prefix")
+    if any(not isinstance(policy.get(key), str) or not policy[key].strip() for key in required):
+        raise ValueError("delegation policy fields")
+    return policy
+
+
 def formal_delegation_context(brief: dict[str, str], receipt: str) -> str:
     encoded = json.dumps(brief, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return (
@@ -294,7 +356,104 @@ def handle_subagent_start(payload: dict[str, Any], home: Path) -> dict[str, Any]
         )
 
 
-def validate_pending_intent(intent: Any, runtime: dict[str, str], home: Path) -> tuple[dict[str, str], str]:
+def validate_pending_intent(
+    intent: Any,
+    runtime: dict[str, str],
+    home: Path,
+    binding_path: Path | None = None,
+    binding_hash: str | None = None,
+) -> tuple[dict[str, str], str]:
+    if isinstance(intent, dict) and intent.get("schema_version") == "xiaoh-delegation-binding/v1":
+        required = {
+            "prepared_at", "expires_at", "session_id", "task_id", "task_context",
+            "authority_hash", "delegated_agent", "agent_type", "task_name", "action",
+            "review_round", "purpose", "subject_digest", "playbook_adapter_receipt",
+            "playbook_adapter_receipt_sha256", "nonce", "hook_path", "hook_hash",
+            "transport_message_hash", "receipt",
+        }
+        if not required <= set(intent):
+            raise ValueError("execution binding schema")
+        if (
+            intent.get("session_id") != runtime["session_id"]
+            or intent.get("agent_type") != runtime["agent_type"]
+        ):
+            raise ValueError("execution binding runtime")
+        context_path = Path(str(intent["task_context"]))
+        if not context_path.is_absolute() or not context_path.is_file():
+            raise ValueError("execution binding task context")
+        context = json.loads(context_path.read_text(encoding="utf-8"))
+        if (
+            context.get("schema_version") != "1.6"
+            or authority_hash(context) != intent.get("authority_hash")
+            or context.get("task_id") != intent.get("task_id")
+        ):
+            raise ValueError("execution binding authority")
+        revalidate_task_context(context_path, home)
+        policy = delegation_policy(context, intent["delegated_agent"])
+        expected_name = (
+            re.escape(policy["task_name_prefix"])
+            + r"__r[1-9][0-9]*__[0-9a-f]{8,64}"
+        )
+        if (
+            intent["agent_type"] != policy["agent_type"]
+            or intent["action"] != policy["action"]
+            or not re.fullmatch(expected_name, intent["task_name"])
+        ):
+            raise ValueError("execution binding authorization")
+        hook_path = (home / "hooks" / "block_reserved_root_agent.py").resolve()
+        if Path(intent["hook_path"]).resolve() != hook_path or not hmac.compare_digest(
+            hashlib.sha256(hook_path.read_bytes()).hexdigest(), intent["hook_hash"]
+        ):
+            raise ValueError("execution binding hook")
+        checked_binding = binding_path or pending_path(
+            home, runtime["session_id"], runtime["agent_type"]
+        )
+        validator = home / "agent-system" / "validate.py"
+        checked = subprocess.run(
+            [
+                sys.executable,
+                str(validator),
+                "--execution-binding",
+                str(checked_binding),
+                "--task-context",
+                str(context_path),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=45,
+            check=False,
+        )
+        if checked.returncode != 0:
+            detail = (checked.stdout or checked.stderr).strip().splitlines()
+            raise ValueError(
+                "execution binding validation"
+                + (": " + detail[-1] if detail else "")
+            )
+        headers = {
+            "task_id": intent["task_id"],
+            "task_context": intent["task_context"],
+            "authority_hash": intent["authority_hash"],
+            "delegated_agent": intent["delegated_agent"],
+            "execution_binding": str(
+                (binding_path or checked_binding).resolve(strict=False)
+            ),
+            "binding_hash": binding_hash or hashlib.sha256(
+                checked_binding.read_bytes()
+            ).hexdigest(),
+        }
+        brief = effective_brief(
+            headers,
+            {
+                "agent_type": intent["agent_type"],
+                "task_name": intent["task_name"],
+            },
+            context,
+            intent,
+            binding_path or checked_binding,
+            headers["binding_hash"],
+        )
+        return brief, intent["receipt"]
     required = {
         "schema_version", "prepared_at", "session_id", "task_id", "task_context", "context_hash",
         "delegated_agent", "agent_type", "task_name", "effective_brief", "effective_brief_hash",
@@ -354,7 +513,13 @@ def prepare_delegation_intent(payload: dict[str, Any], home: Path, run_validator
     session_id = os.environ.get("CODEX_THREAD_ID", "")
     if not session_id:
         raise ValueError("CODEX_THREAD_ID")
-    result = decision(payload, codex_home=home, run_validator=run_validator, write_proof=False)
+    result = decision(
+        payload,
+        codex_home=home,
+        run_validator=run_validator,
+        write_proof=False,
+        allow_unbound_v16=True,
+    )
     if result is not None:
         reason = result["hookSpecificOutput"]["permissionDecisionReason"]
         raise ValueError(reason)
@@ -362,6 +527,88 @@ def prepare_delegation_intent(payload: dict[str, Any], home: Path, run_validator
     headers, _, _ = delegation_headers(tool_input["message"])
     context = json.loads(Path(headers["task_context"]).read_text(encoding="utf-8"))
     hook_path = (home / "hooks" / "block_reserved_root_agent.py").resolve()
+    if context.get("schema_version") == "1.6":
+        options = payload.get("binding", {})
+        if not isinstance(options, dict):
+            raise ValueError("binding options")
+        policy = delegation_policy(context, headers["delegated_agent"])
+        now = datetime.now(timezone.utc)
+        review_round = options.get("review_round", 1)
+        if (
+            not isinstance(review_round, int)
+            or isinstance(review_round, bool)
+            or review_round < 1
+        ):
+            raise ValueError("binding review_round")
+        nonce = secrets.token_hex(32)
+        task_name = "{}__r{}__{}".format(
+            policy["task_name_prefix"], review_round, nonce[:16]
+        )
+        binding = {
+            "schema_version": "xiaoh-delegation-binding/v1",
+            "prepared_at": now.isoformat(),
+            "expires_at": (now + timedelta(minutes=15)).isoformat(),
+            "session_id": session_id,
+            "task_id": headers["task_id"],
+            "task_context": str(Path(headers["task_context"]).resolve()),
+            "authority_hash": headers["authority_hash"].casefold(),
+            "delegated_agent": headers["delegated_agent"],
+            "agent_type": tool_input["agent_type"],
+            "task_name": task_name,
+            "action": policy["action"],
+            "review_round": review_round,
+            "purpose": options.get("purpose"),
+            "subject_digest": options.get("subject_digest"),
+            "playbook_adapter_receipt": options.get("playbook_adapter_receipt"),
+            "playbook_adapter_receipt_sha256": options.get(
+                "playbook_adapter_receipt_sha256"
+            ),
+            "nonce": nonce,
+            "hook_path": str(hook_path),
+            "hook_hash": hashlib.sha256(hook_path.read_bytes()).hexdigest(),
+            "transport_message_hash": hashlib.sha256(
+                tool_input["message"].encode("utf-8")
+            ).hexdigest(),
+            "receipt": secrets.token_hex(32),
+        }
+        target = pending_path(home, session_id, tool_input["agent_type"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".binding-", dir=target.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+                json.dump(binding, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(temporary_name, 0o600)
+            os.link(temporary_name, target)
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
+        if run_validator:
+            checked = subprocess.run(
+                [
+                    sys.executable,
+                    str(home / "agent-system" / "validate.py"),
+                    "--execution-binding",
+                    str(target),
+                    "--task-context",
+                    str(Path(headers["task_context"]).resolve()),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=45,
+                check=False,
+            )
+            if checked.returncode != 0:
+                target.unlink(missing_ok=True)
+                detail = (checked.stdout or checked.stderr).strip().splitlines()
+                raise ValueError(
+                    "execution binding validation"
+                    + (": " + detail[-1] if detail else "")
+                )
+        return target
     brief = effective_brief(headers, tool_input, context)
     intent = {
         "schema_version": "1.1",
@@ -409,6 +656,7 @@ def consume_subagent_start(payload: dict[str, Any], home: Path) -> tuple[Path, s
     source = pending_path(home, runtime["session_id"], runtime["agent_type"])
     if not source.is_file():
         return None
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     claimed = source.with_suffix("." + hashlib.sha256(runtime["agent_id"].encode("utf-8")).hexdigest() + ".claimed")
     claim_lock = source.with_suffix(".claim-lock")
     claim_lock.mkdir()
@@ -418,12 +666,15 @@ def consume_subagent_start(payload: dict[str, Any], home: Path) -> tuple[Path, s
     finally:
         claim_lock.rmdir()
     intent = json.loads(claimed.read_text(encoding="utf-8"))
-    brief, receipt = validate_pending_intent(intent, runtime, home)
+    brief, receipt = validate_pending_intent(
+        intent, runtime, home, binding_path=claimed, binding_hash=source_hash
+    )
     proof_intent = {key: value for key, value in intent.items() if key != "receipt"}
     hook_path = (home / "hooks" / "block_reserved_root_agent.py").resolve()
+    is_v16 = intent.get("schema_version") == "xiaoh-delegation-binding/v1"
     proof = {
         **proof_intent,
-        "schema_version": "1.2",
+        "schema_version": "1.3" if is_v16 else "1.2",
         "state": "started",
         "source": "subagent-start-stop",
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -433,6 +684,12 @@ def consume_subagent_start(payload: dict[str, Any], home: Path) -> tuple[Path, s
         "hook_path": str(hook_path),
         "hook_hash": hashlib.sha256(hook_path.read_bytes()).hexdigest(),
     }
+    if is_v16:
+        proof["context_hash"] = intent["authority_hash"]
+        proof["execution_binding_hash"] = source_hash
+        proof["execution_binding_claimed_path"] = str(claimed.resolve())
+        proof["effective_brief"] = brief
+        proof["effective_brief_hash"] = canonical_hash(brief)
     proof_directory = home / "agent-system" / "delegation-proofs" / proof["context_hash"]
     proof_directory.mkdir(parents=True, exist_ok=True)
     target = proof_directory / (hashlib.sha256(runtime["agent_id"].encode("utf-8")).hexdigest() + ".json")
@@ -448,7 +705,8 @@ def consume_subagent_start(payload: dict[str, Any], home: Path) -> tuple[Path, s
     finally:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
-    claimed.unlink()
+    if not is_v16:
+        claimed.unlink()
     return target, formal_delegation_context(brief, receipt)
 
 
@@ -473,7 +731,7 @@ def attest_subagent_stop(payload: dict[str, Any], home: Path) -> dict[str, Any] 
     if proof_path is None:
         return None
     proof = json.loads(proof_path.read_text(encoding="utf-8"))
-    if proof.get("schema_version") != "1.2":
+    if proof.get("schema_version") not in {"1.2", "1.3"}:
         return None
     expected = {
         "session_id": runtime["session_id"],
@@ -532,6 +790,7 @@ def decision(
     codex_home: Path | None = None,
     run_validator: bool = True,
     write_proof: bool = True,
+    allow_unbound_v16: bool = False,
 ) -> dict[str, Any] | None:
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
@@ -563,14 +822,27 @@ def decision(
         context_bytes = context_path.read_bytes()
     except OSError:
         return deny("拒绝 Agent 调用：无法读取 task_context。")
-    actual_hash = hashlib.sha256(context_bytes).hexdigest()
-    if not hmac.compare_digest(actual_hash, headers["context_hash"].casefold()):
-        return deny("拒绝 Agent 调用：context_hash 与 task_context 当前内容不一致。")
-
     try:
         context = json.loads(context_bytes.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError):
         return deny("拒绝 Agent 调用：task_context 不是有效的 UTF-8 JSON。")
+    if context.get("schema_version") == "1.5" and run_validator:
+        return deny(
+            "拒绝正式委派：schema 1.5仅保留历史只读审计；"
+            "请先显式迁移为不可覆盖的schema 1.6修订。"
+        )
+    if context.get("schema_version") == "1.6":
+        if "authority_hash" not in headers or "context_hash" in headers:
+            return deny("拒绝 Agent 调用：schema 1.6必须使用唯一authority_hash。")
+        actual_hash = authority_hash(context)
+        if not hmac.compare_digest(actual_hash, headers["authority_hash"].casefold()):
+            return deny("拒绝 Agent 调用：authority_hash 与稳定任务授权不一致。")
+    else:
+        if "context_hash" not in headers or "authority_hash" in headers:
+            return deny("拒绝 Agent 调用：历史任务上下文必须使用唯一context_hash。")
+        actual_hash = hashlib.sha256(context_bytes).hexdigest()
+        if not hmac.compare_digest(actual_hash, headers["context_hash"].casefold()):
+            return deny("拒绝 Agent 调用：context_hash 与 task_context 当前内容不一致。")
     if context.get("task_id") != headers["task_id"]:
         return deny("拒绝 Agent 调用：task_id 与 task_context 不一致。")
     routing = context.get("routing")
@@ -581,9 +853,50 @@ def decision(
         return deny(
             f"拒绝 Agent 调用：角色 {headers['delegated_agent']} 未列入 task_context.routing.delegated_agents。"
         )
-    delegation_names = routing.get("delegation_names")
-    if not isinstance(delegation_names, dict) or delegation_names.get(headers["delegated_agent"]) != tool_input.get("task_name"):
-        return deny("拒绝 Agent 调用：task_name 与 task_context.routing.delegation_names 不一致。")
+    if context.get("schema_version") == "1.6":
+        try:
+            policy = delegation_policy(context, headers["delegated_agent"])
+        except ValueError:
+            return deny("拒绝 Agent 调用：schema 1.6缺少有效角色委派策略。")
+        expected_name = re.escape(policy["task_name_prefix"]) + r"__r[1-9][0-9]*__[0-9a-f]{8,64}"
+        if not re.fullmatch(expected_name, str(tool_input.get("task_name", ""))):
+            return deny("拒绝 Agent 调用：task_name 不在角色授权命名空间内。")
+        if policy["agent_type"] != tool_input.get("agent_type"):
+            return deny("拒绝 Agent 调用：agent_type 与角色委派策略不一致。")
+        execution_headers = {
+            key for key in ("execution_binding", "binding_hash") if key in headers
+        }
+        if not execution_headers and not allow_unbound_v16:
+            return deny("拒绝 Agent 调用：schema 1.6缺少一次性execution binding。")
+        if execution_headers:
+            binding_path = Path(headers["execution_binding"]).expanduser()
+            if not binding_path.is_absolute() or not binding_path.is_file():
+                return deny("拒绝 Agent 调用：execution_binding不是存在的绝对文件路径。")
+            binding_bytes = binding_path.read_bytes()
+            if not hmac.compare_digest(
+                hashlib.sha256(binding_bytes).hexdigest(),
+                headers["binding_hash"].casefold(),
+            ):
+                return deny("拒绝 Agent 调用：binding_hash与execution_binding不一致。")
+            try:
+                binding = json.loads(binding_bytes.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError):
+                return deny("拒绝 Agent 调用：execution_binding不是有效JSON。")
+            expected_binding = {
+                "task_id": headers["task_id"],
+                "task_context": str(context_path.resolve()),
+                "authority_hash": headers["authority_hash"].casefold(),
+                "delegated_agent": headers["delegated_agent"],
+                "agent_type": tool_input.get("agent_type"),
+                "task_name": tool_input.get("task_name"),
+                "action": policy["action"],
+            }
+            if any(binding.get(key) != value for key, value in expected_binding.items()):
+                return deny("拒绝 Agent 调用：execution_binding与当前委派不一致。")
+    else:
+        delegation_names = routing.get("delegation_names")
+        if not isinstance(delegation_names, dict) or delegation_names.get(headers["delegated_agent"]) != tool_input.get("task_name"):
+            return deny("拒绝 Agent 调用：task_name 与 task_context.routing.delegation_names 不一致。")
     try:
         playbook_binding = managed_playbook_binding(context, headers["delegated_agent"])
     except ValueError as exc:
@@ -611,17 +924,48 @@ def decision(
         if checked.returncode != 0:
             detail = (checked.stdout or checked.stderr).strip().splitlines()
             return deny("拒绝 Agent 调用：task_context 门禁校验失败。" + (f" {detail[-1]}" if detail else ""))
-        action = playbook_binding.get("delegated_action") if playbook_binding else None
-        if action in REQUIREMENT_GATE_ACTIONS:
+        if context.get("schema_version") == "1.6" and execution_headers:
             checked = subprocess.run(
                 [
                     sys.executable,
                     str(validator),
-                    "--requirement-gate",
+                    "--execution-binding",
+                    str(binding_path),
+                    "--task-context",
                     str(context_path),
-                    "--action",
-                    action,
                 ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=45,
+                check=False,
+            )
+            if checked.returncode != 0:
+                detail = (checked.stdout or checked.stderr).strip().splitlines()
+                return deny(
+                    "拒绝 Agent 调用：execution binding门禁校验失败。"
+                    + (f" {detail[-1]}" if detail else "")
+                )
+        action = (
+            policy["action"]
+            if context.get("schema_version") == "1.6"
+            else playbook_binding.get("delegated_action") if playbook_binding else None
+        )
+        if action in REQUIREMENT_GATE_ACTIONS:
+            gate_command = [
+                sys.executable,
+                str(validator),
+                "--requirement-gate",
+                str(context_path),
+                "--action",
+                action,
+            ]
+            if context.get("schema_version") == "1.6" and execution_headers:
+                gate_command.extend(
+                    ["--delegated-execution-binding", str(binding_path)]
+                )
+            checked = subprocess.run(
+                gate_command,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -984,7 +1328,32 @@ def main() -> None:
     home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
     if arguments == ["--prepare"]:
         try:
-            print(prepare_delegation_intent(payload, home))
+            prepared_path = prepare_delegation_intent(payload, home)
+            prepared_binding = json.loads(prepared_path.read_text(encoding="utf-8"))
+            if prepared_binding.get("schema_version") == "xiaoh-delegation-binding/v1":
+                prepared_tool_input = dict(payload["tool_input"])
+                prepared_tool_input["task_name"] = prepared_binding["task_name"]
+                prepared_tool_input["message"] = (
+                    prepared_tool_input["message"].rstrip()
+                    + "\nexecution_binding: "
+                    + str(prepared_path.resolve())
+                    + "\nbinding_hash: "
+                    + hashlib.sha256(prepared_path.read_bytes()).hexdigest()
+                    + "\n"
+                )
+                json.dump(
+                    {
+                        "execution_binding": str(prepared_path.resolve()),
+                        "binding_hash": hashlib.sha256(
+                            prepared_path.read_bytes()
+                        ).hexdigest(),
+                        "tool_input": prepared_tool_input,
+                    },
+                    sys.stdout,
+                    ensure_ascii=False,
+                )
+            else:
+                print(prepared_path)
         except (OSError, ValueError, TypeError, KeyError, UnicodeError, json.JSONDecodeError) as exc:
             print(f"委派意图准备失败：{exc}", file=sys.stderr)
             raise SystemExit(1)

@@ -15,7 +15,7 @@ Keep routing in the current root thread. Never create or delegate to an Agent na
 
 ## Produce one route
 
-Require task-context schema 1.5 with `memory_recall.status=completed`. The recall manifest must match
+Require task-context schema 1.6 with `memory_recall.status=completed`. The recall manifest must match
 the resolved Workspace, contain current fact sources, and record any material history-versus-current
 conflicts. Do not route from daily digests alone or treat recalled Obsidian content as permission.
 

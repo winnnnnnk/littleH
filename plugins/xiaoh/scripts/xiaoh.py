@@ -66,6 +66,13 @@ def file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
+def canonical_json_hash(value: object) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def atomic_write_text(path: Path, text: str, backup: Path | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if backup and path.exists():
@@ -1064,8 +1071,37 @@ def refresh_templates(codex: Path) -> None:
     context["freshness"]["checked_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     atomic_write_json(template, context)
     record = load_json(run_record)
-    record["context_hash"] = hashlib.sha256(template.read_bytes()).hexdigest()
+    record["context_hash"] = (
+        canonical_json_hash(context)
+        if context.get("schema_version") == "1.6"
+        else hashlib.sha256(template.read_bytes()).hexdigest()
+    )
     atomic_write_json(run_record, record)
+
+
+def doctor_commands(codex: Path, runtime: bool = False) -> list[list[str]]:
+    commands = [
+        [sys.executable, str(codex / "agent-system/validate.py"), "--self-test"],
+        [sys.executable, str(codex / "hooks/block_reserved_root_agent.py"), "--self-test"],
+        [sys.executable, str(codex / "hooks/guard_vault_writes.py"), "--self-test"],
+        [sys.executable, str(codex / "agent-system/validate.py"), "--task-context", str(codex / "agent-system/task-context.template.json")],
+        [sys.executable, str(codex / "agent-system/validate.py"), "--run-record", str(codex / "agent-system/run-record.template.json")],
+        [
+            sys.executable,
+            str(codex / "agent-system/validate.py"),
+            "--routing-case",
+            "java-single-repo-fix",
+            "--intent-domain",
+            "business_project",
+            "--selected-agents",
+            "java_code_explorer,java_implementer,code_quality_reviewer,test_integration_verifier",
+        ],
+    ]
+    if runtime:
+        commands.append(
+            [sys.executable, str(codex / "hooks/verify_agent_hook_runtime.py"), "--codex-home", str(codex), "--cwd", os.getcwd()]
+        )
+    return commands
 
 
 def doctor(
@@ -1099,9 +1135,13 @@ def doctor(
         playbook_adapter.get("mode") == "enabled"
         and playbook_adapter.get("status") != "compatible"
     ):
+        adapter_errors = playbook_adapter.get("errors") or [
+            "实际worker/status状态契约尚未验证: "
+            + str(playbook_adapter.get("status"))
+        ]
         warnings.extend(
             "Playbook适配器: " + message
-            for message in playbook_adapter.get("errors", ["当前Playbook接口不兼容"])
+            for message in adapter_errors
         )
     plugin_version = load_json(PLUGIN_MANIFEST)["version"]
     active_plugin, active_plugin_error = installed_xiaoh_plugin()
@@ -1186,27 +1226,7 @@ def doctor(
         if not required.exists():
             errors.append(f"缺少文件: {required}")
 
-    commands = [
-        [sys.executable, str(codex / "agent-system/validate.py"), "--self-test"],
-        [sys.executable, str(codex / "hooks/block_reserved_root_agent.py"), "--self-test"],
-        [sys.executable, str(codex / "hooks/guard_vault_writes.py"), "--self-test"],
-        [sys.executable, str(codex / "agent-system/validate.py"), "--task-context", str(codex / "agent-system/task-context.template.json")],
-        [sys.executable, str(codex / "agent-system/validate.py"), "--run-record", str(codex / "agent-system/run-record.template.json")],
-        [
-            sys.executable,
-            str(codex / "agent-system/validate.py"),
-            "--routing-case",
-            "java-single-repo-fix",
-            "--intent-domain",
-            "business_project",
-            "--selected-agents",
-            "java_code_explorer,java_implementer,test_integration_verifier",
-        ],
-    ]
-    if runtime:
-        commands.append(
-            [sys.executable, str(codex / "hooks/verify_agent_hook_runtime.py"), "--codex-home", str(codex), "--cwd", os.getcwd()]
-        )
+    commands = doctor_commands(codex, runtime)
     env = os.environ.copy()
     env.update({"CODEX_HOME": str(codex), "XIAOH_VAULT": str(vault), "XIAOH_CONFIG": str(config_path)})
     if not errors:
