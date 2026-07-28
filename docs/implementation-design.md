@@ -1,10 +1,12 @@
 # 小H实现设计
 
-> 适用版本：2.16.1
+> 适用版本：2.17.0
 >
-> 文档定位：说明小H实现了什么、各组件如何协作、哪些规则由运行时强制，以及一次任务如何从沟通走到交付和知识沉淀。
+> 本文面向维护者，说明小H的组件、事实源、运行门禁和任务生命周期。
 >
 > 不包含：任何客户、项目、仓库、任务、账号、凭据或本机绝对路径。
+
+第一次使用小H，请先读[认识小H](xiaoh-guide.md)。只想了解Playbook分工，请读[小H与Playbook的关系](xiaoh-playbook-relationship.md)。本文保留实现细节，适合开发、排障和发布检查。
 
 ## 1. 小H是什么
 
@@ -12,7 +14,7 @@
 
 它由以下部分共同实现：
 
-1. Codex插件：发布19个Skill和插件元数据。
+1. Codex插件：发布20个Skill和插件元数据。
 2. 根线程协调规则：理解用户目标、核对证据、形成推荐方案并持续推进。
 3. 公共执行契约：为根线程和所有专业Agent规定事实源、权限、门禁、证据和收口要求。
 4. 专业Agent目录：提供8种跨项目复用的探索、设计、实现和评审角色。
@@ -21,7 +23,7 @@
 7. 本地运行时管理：负责安装、更新、诊断、Workspace注册和托管任务绑定。
 8. Obsidian研发系统：将当前工作、项目进度和长期知识分开管理。
 
-小H解决的核心问题不是“让多个Agent自由聊天”，而是：
+小H负责解决这些问题：
 
 - 用户只描述目标，不负责替AI拆流程。
 - 小H先核对事实，再给出推荐和需要用户决定的业务结果。
@@ -60,7 +62,7 @@ flowchart TB
     U["用户<br/>目标、现象、业务决定"] --> R["小H根线程<br/>理解、核对、推荐、裁决"]
 
     R --> C["公共契约<br/>事实源、意图域、门禁、收口"]
-    R --> S["19个Skill<br/>按阶段提供确定工作流"]
+    R --> S["20个Skill<br/>按阶段提供确定工作流"]
     R --> T["schema 1.6稳定任务授权<br/>历史召回、目标、范围、角色、动作、验收"]
     T --> B["单次执行绑定<br/>唯一名称、轮次、对象、短时收据"]
 
@@ -691,7 +693,7 @@ Doctor检查：
 
 - 插件源码版本、已启用插件版本、已部署运行时版本。
 - 当前线程实际加载的Skill版本。
-- 19个捆绑Skill及配套插件状态。
+- 20个捆绑Skill及配套插件状态。
 - 可选集成的配置模式与状态；Playbook只有在显式启用或任务明确受管时才要求兼容。
 - Playbook CLI版本维护边界是否同时存在于捆绑公共契约和当前生效`AGENTS.md`；Doctor只诊断，不安装命令级机械门禁。
 - 8个Agent是否完整，是否错误存在`xiaoh`子Agent或未登记Agent。
@@ -708,11 +710,12 @@ Doctor检查：
 - `degraded`：核心可用，但推荐能力、自动化绑定、运行时证明或显式`enabled`的集成不完整。
 - `failed`：核心配置、门禁、版本、Agent或路径存在阻断问题。
 
-## 15. 19个Skill的职责
+## 15. 20个Skill的职责
 
 | Skill | 作用 |
 | --- | --- |
 | `xiaoh-core` | 根线程交互、协调、验收和收口 |
+| `humanizer` | 对写给用户阅读的文档执行初稿、AI写作痕迹审查和最终修订 |
 | `xiaoh-workspace-routing` | Workspace到项目和系统的持久化路由 |
 | `xiaoh-project-recall` | 定向召回项目历史、与当前事实对账并生成可验证清单 |
 | `xiaoh-local-review` | 以多角色评审、修复和收敛复审绑定当前实现证据 |
@@ -855,6 +858,9 @@ python3 ~/.codex/agent-system/validate.py \
 python3 ~/.codex/agent-system/validate.py \
   --requirement-gate /absolute/path/to/task-context.json \
   --action task_create
+python3 ~/.codex/agent-system/validate.py \
+  --local-review-manifest /absolute/path/to/local-review-manifest.json \
+  --task-context /absolute/path/to/task-context.json
 python3 ~/.codex/agent-system/validate.py \
   --close-task-context /absolute/path/to/task-context.json \
   --run-dir /absolute/path/to/evidence

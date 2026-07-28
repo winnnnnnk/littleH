@@ -2,6 +2,7 @@
   "schema_version": "1.0",
   "bundled_skills": [
     "fit-for-purpose-engineering",
+    "humanizer",
     "spec-rfc",
     "spec-rfc-openspec-consistency-review",
     "spec-rfc-reviewer",

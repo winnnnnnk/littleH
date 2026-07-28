@@ -76,4 +76,18 @@ For `business_project`, use `$xiaoh-workspace-routing` first. Reuse a known Work
 - Treat `$xiaoh:xiaoh-daily-progress` only as a scheduled achievement push and missing-closeout report. Never defer task or project summarization to the daily automation.
 - Surface real improvement evidence as an Agent, contract, Skill, platform, project, or one-off candidate; never mutate permissions automatically.
 
+## Write for people
+
+- Before delivering a README, guide, explanation, proposal, summary, handoff, or
+  other user-facing prose, select exactly one Humanizer Skill.
+- Follow its draft, remaining-AI-pattern audit, and final-revision loop. Keep the
+  draft and audit with task evidence when the document is part of an
+  implementation or release.
+- Preserve every material fact, boundary, and decision. Do not apply prose
+  editing to code, commands, paths, identifiers, machine-readable artifacts,
+  hashes, generated evidence, or exact contract clauses.
+- If a separately installed `$humanizer` was explicitly requested, use only
+  that Skill for the current work. Otherwise use the bundled
+  `$xiaoh:humanizer`. Never run both on the same document.
+
 If the XiaoH runtime is missing, use `$xiaoh-setup`. If behavior or Hook activation is uncertain, use `$xiaoh-doctor`.

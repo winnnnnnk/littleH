@@ -1,18 +1,18 @@
 # 小H与Playbook的关系
 
-> 适用版本：小H 2.16.1
+> 适用版本：小H 2.17.0
 >
-> 文档定位：说明小H协调层与AI Dev Playbook执行治理平台如何分工、交接和共同约束专业Agent。
+> 本文说明小H和AI Dev Playbook各自负责什么，以及一项受管任务如何在两者之间交接。
 >
 > 不包含：具体项目、客户、仓库、任务、账号或凭据。
 
-## 1. 核心关系
+## 1. 先说结论
 
-小H与Playbook是可选的上下协作关系，不是同一个组件，也不是互相替代。小H核心可以独立安装和使用；只有当前任务明确由Playbook管理时，才进入下面的交接：
+小H可以独立工作，Playbook不是它的运行前提。只有当前任务已经明确交给Playbook管理，两者才会进入受管协作。
 
-- 小H是面向用户的根线程协调层，负责理解目标、核对事实、推荐方案、需求裁决、专业Agent路由、结果验收和长期知识写回。
-- Playbook是面向研发执行的治理平台，负责Workspace、成员仓库、任务状态、OpenSpec、worktree、Git、门禁、验证、Issue/MR和交付闭环。
-- 小H本地多角色评审是两种模式共同的实现质量门禁；Playbook远程AI评审是受管交付门禁，二者不互相替代。
+小H面向用户，负责理解目标、核对事实、推荐方案、协调专业Agent、验收结果和维护长期知识。Playbook面向研发执行，管理Workspace、仓库、任务状态、OpenSpec、worktree、Git和交付门禁。
+
+所有实现都先经过小H的本地多角色评审。Playbook受管任务在本地评审通过后，还要继续完成Playbook的远程评审和交付门禁。两层评审检查的状态不同，不能互相替代。
 
 是否启用由`~/.xiaoh/config.json`中的`integrations.playbook`控制：
 
@@ -22,11 +22,11 @@
 | `enabled` | Doctor主动验证兼容性 | 缺失或不兼容时失败关闭 |
 | `disabled` | 完全跳过Playbook探测 | 禁止受管委派，直到修改配置 |
 
-安装了Playbook命令不等于任务受管，也不会自动加载Playbook门禁。
+安装了Playbook命令，不代表当前任务受管，也不会让普通任务自动套用Playbook门禁。
 
-Playbook CLI本身的安装、升级、降级、重装、版本切换和安装源切换是用户人工维护边界。小H、专业Agent、Skill和Hook只读核对`playbook --version`、`playbook version check`、命令路径和包元数据；即使Playbook或错误恢复输出建议执行升级命令，也只向用户报告，不代为执行。这个边界由公共契约和Doctor诊断保证，不安装命令级机械门禁，因此不会干预用户在Codex外部终端的人工维护。
+Playbook CLI的安装、升级、降级、重装、版本切换和安装源切换由用户人工完成。小H、专业Agent、Skill和Hook只读核对`playbook --version`、`playbook version check`、命令路径和包元数据。Playbook或错误恢复信息即使给出升级命令，小H也只报告建议，不代为执行。公共契约和Doctor负责检查这条边界，但不会安装命令级机械门禁，也不会干预用户在Codex外部终端中的人工维护。
 
-可以简化为：
+一次受管任务的关系如下：
 
 ```text
 用户目标
@@ -56,7 +56,7 @@ Playbook：验证、提交、远端协作、合并和任务闭环
 | 长期记忆 | 将验收后的稳定结论写入配置Vault | 将原始执行证据保存在任务、仓库和受管evidence中 |
 | 外部动作 | 判断是否需要用户授权，不绕过人工边界 | 通过受管命令执行Issue、MR、review、merge、archive和cleanup |
 
-## 3. 谁拥有哪种决定
+## 3. 决定和事实归谁
 
 | 决定或事实 | 责任主体 |
 | --- | --- |
@@ -73,11 +73,11 @@ Playbook：验证、提交、远端协作、合并和任务闭环
 | 是否可以提交、推送、建MR或合并 | Playbook门禁 + 必要的人工授权 |
 | 哪些结论进入长期知识 | 小H知识评审和晋升流程 |
 
-小H不能用Obsidian或自己的任务摘要改写Playbook执行状态；Playbook也不能用“当前代码已经这样实现”替用户决定目标行为。
+小H不能用Obsidian或任务摘要改写Playbook执行状态。Playbook也不能因为当前代码已经这样实现，就替用户决定目标行为。
 
 ## 4. 从小H到Playbook的交接
 
-复杂业务需求的标准交接点位于“用户确认总体Spec+RFC”之后：
+复杂业务需求在用户确认总体Spec+RFC后交给Playbook：
 
 ```mermaid
 sequenceDiagram
@@ -156,9 +156,9 @@ Playbook已经返回worker/task简报时，它是执行状态的权威事实源�
 
 未受管项目使用相同本地闭环，但不伪造Playbook task、worker、handoff或finalize状态。需要MR时按仓库规则执行远程评审和人工Approval；不需要远程交付时，本地清单、验证证据和小H即时收口构成完整闭环。
 
-## 7. 两套“收口”不是一回事
+## 7. 两种收口记录不同的事实
 
-Playbook收口与小H收口解决不同问题：
+Playbook收口记录仓库任务是否完成。小H收口记录结果为什么成立，以及后续如何召回。
 
 | 收口 | 证明什么 | 主要产物 |
 | --- | --- | --- |
@@ -221,11 +221,12 @@ Playbook收口与小H收口解决不同问题：
 | Playbook任务完成但小H未收口 | 立即补小H收口并标记延迟事实，不修改Playbook历史 |
 | 小H已写记录但Playbook未闭环 | Obsidian记录不能提升Playbook状态，继续受管流程 |
 
-## 11. 一句话介绍
+## 11. 对外怎么介绍
 
 > 小H负责把人的目标变成正确、可确认的研发决策，并协调专业Agent；Playbook负责把这些决策放进受管Workspace，以OpenSpec、worktree、Git和交付门禁完成可验证执行；任务完成后，小H再把已验收结果沉淀为项目上下文和长期知识。
 
 ## 12. 相关文档
 
+- [认识小H](xiaoh-guide.md)
 - [小H实现设计](implementation-design.md)
 - [安全与可信边界](../SECURITY.md)

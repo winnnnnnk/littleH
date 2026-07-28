@@ -149,6 +149,38 @@ class CompanionTests(unittest.TestCase):
         self.assertIn("xiaoh-playbook-adapter", actual_skills)
         self.assertIn("xiaoh-project-recall", actual_skills)
         self.assertIn("xiaoh-local-review", actual_skills)
+        self.assertIn("humanizer", actual_skills)
+
+    def test_user_facing_documentation_uses_bundled_humanizer_policy(self):
+        root = Path(__file__).parents[1]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        guide = (root / "docs/xiaoh-guide.md").read_text(encoding="utf-8")
+        core = (
+            root / "plugins/xiaoh/skills/xiaoh-core/SKILL.md"
+        ).read_text(encoding="utf-8")
+        contract = (
+            root / "plugins/xiaoh/runtime/codex/AGENTS.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("[认识小H](docs/xiaoh-guide.md)", readme)
+        self.assertIn("独立`humanizer`", guide)
+        self.assertIn("`xiaoh:humanizer`", guide)
+        self.assertIn("同一份文档不会连续调用两个版本", guide)
+        self.assertIn("$xiaoh:humanizer", core)
+        self.assertIn("Never run both on the same document", core)
+        self.assertIn("面向用户的文档表达", contract)
+        self.assertIn("两者是替代关系", contract)
+
+        user_docs = [
+            root / "README.md",
+            root / "docs/xiaoh-guide.md",
+            root / "docs/implementation-design.md",
+            root / "docs/xiaoh-playbook-relationship.md",
+        ]
+        for path in user_docs:
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("—", text, path)
+            self.assertNotIn("–", text, path)
 
     def test_validator_self_test_recall_path_is_platform_absolute(self):
         manifest_path = VALIDATOR.example_memory_recall()["manifest_path"]
