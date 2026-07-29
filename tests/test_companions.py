@@ -2426,6 +2426,96 @@ class CompanionTests(unittest.TestCase):
                 )
                 self.assertNotIn("worker_contract_source", verified["playbook"])
 
+    def test_single_member_root_owned_worker_uses_independent_local_review_bindings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            context, context_path, status, raw, _, artifact = (
+                self.write_status_review_fixture(root)
+            )
+            worker_path = root / "worker.json"
+            worker = json.loads(worker_path.read_text(encoding="utf-8"))
+            worker_context = worker["data"]["child_worker_context"]
+            worker_context.update({
+                "execution_mode": "main_agent_direct",
+                "recommended_executor": "main_agent",
+                "allowed_scope": [str(artifact.parent.resolve())],
+                "routing": {
+                    "delegated_agents": [],
+                    "delegated_actions": {},
+                },
+            })
+            worker_path.write_text(json.dumps(worker), encoding="utf-8")
+            raw.write_text(raw.read_text(encoding="utf-8"), encoding="utf-8")
+            status.write_text(
+                status.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            implementation_output = root / "implementation-receipt.json"
+            implementation = PLAYBOOK_ADAPTER.create_receipt(
+                worker_path,
+                status,
+                implementation_output,
+                "implementation",
+                context["playbook"]["xiaoh_workspace_id"],
+                playbook_command=sys.executable,
+            )
+            implementation_receipt = PLAYBOOK_ADAPTER.validate_receipt(
+                implementation_output,
+                expected_sha256=implementation["receipt_sha256"],
+                expected_action="implementation",
+            )
+            self.assertEqual("worker", implementation_receipt["binding_kind"])
+            self.assertEqual(
+                "main_agent",
+                implementation_receipt["playbook"]["recommended_executor"],
+            )
+            self.assertEqual(
+                1,
+                len(json.loads(raw.read_text(encoding="utf-8"))["task"]["members"]),
+            )
+
+            for reviewer, action in {
+                "code_quality_reviewer": "code_review",
+                "test_integration_verifier": "verification",
+            }.items():
+                with self.subTest(reviewer=reviewer):
+                    context["routing"]["delegated_agents"] = [reviewer]
+                    context["routing"]["delegation_policies"] = {
+                        reviewer: {
+                            "agent_type": reviewer,
+                            "action": action,
+                            "task_name_prefix": "local_review",
+                        }
+                    }
+                    context_path.write_text(
+                        json.dumps(context),
+                        encoding="utf-8",
+                    )
+                    output = root / "{}-receipt.json".format(action)
+                    captured = PLAYBOOK_ADAPTER.create_review_receipt(
+                        context_path,
+                        status,
+                        [str(artifact)],
+                        output,
+                        action,
+                        playbook_command=sys.executable,
+                    )
+                    verified = PLAYBOOK_ADAPTER.validate_receipt(
+                        output,
+                        expected_sha256=captured["receipt_sha256"],
+                        expected_action=action,
+                    )
+                    self.assertEqual("local_review", verified["binding_kind"])
+                    self.assertNotIn(
+                        "recommended_executor",
+                        verified["playbook"],
+                    )
+                    self.assertNotIn(
+                        "worker_contract_source",
+                        verified["playbook"],
+                    )
+
     def test_status_review_binding_rejects_write_actions_and_changed_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2.17.3 - 2026-07-29
+
+- Playbook受管任务只有一个member且由根线程直接实现时，本地专业评审改用独立的`local_review`绑定，不再复用root-owned worker凭证。
+- `code_quality_reviewer`和`test_integration_verifier`分别绑定`code_review`与`verification`，并校验当前任务状态、member worktree、授权范围和唯一评审对象摘要。
+- 专业Agent继续拒绝`recommended_executor=main_agent`的worker凭证；实现权限与只读评审权限保持分离。
+- 新增单member、root-owned worker与双专业评审组合回归，防止相同版本源码与部署运行时再次产生能力误判。
+- 本次发布只调整小H，不修改Playbook CLI版本。
+
 ## 2.17.1 - 2026-07-28
 
 - `status_review`改为只接受schema 1.6稳定任务上下文，不再依赖schema 1.5中的运行时绑定字段。
