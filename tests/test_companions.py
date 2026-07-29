@@ -2432,6 +2432,20 @@ class CompanionTests(unittest.TestCase):
             context, context_path, status, raw, _, artifact = (
                 self.write_status_review_fixture(root)
             )
+            reviewer_actions = {
+                "code_quality_reviewer": "code_review",
+                "test_integration_verifier": "verification",
+            }
+            context["routing"]["delegated_agents"] = list(reviewer_actions)
+            context["routing"]["delegation_policies"] = {
+                reviewer: {
+                    "agent_type": reviewer,
+                    "action": action,
+                    "task_name_prefix": "local_review",
+                }
+                for reviewer, action in reviewer_actions.items()
+            }
+            context_path.write_text(json.dumps(context), encoding="utf-8")
             worker_path = root / "worker.json"
             worker = json.loads(worker_path.read_text(encoding="utf-8"))
             worker_context = worker["data"]["child_worker_context"]
@@ -2467,6 +2481,10 @@ class CompanionTests(unittest.TestCase):
             )
             self.assertEqual("worker", implementation_receipt["binding_kind"])
             self.assertEqual(
+                "main_agent_direct",
+                implementation_receipt["playbook"]["execution_mode"],
+            )
+            self.assertEqual(
                 "main_agent",
                 implementation_receipt["playbook"]["recommended_executor"],
             )
@@ -2475,23 +2493,15 @@ class CompanionTests(unittest.TestCase):
                 len(json.loads(raw.read_text(encoding="utf-8"))["task"]["members"]),
             )
 
-            for reviewer, action in {
-                "code_quality_reviewer": "code_review",
-                "test_integration_verifier": "verification",
-            }.items():
+            hook = root / "hook.py"
+            hook.write_text("# hook\n", encoding="utf-8")
+            now = datetime.now(timezone.utc)
+            local_receipts = {}
+            for index, (reviewer, action) in enumerate(
+                reviewer_actions.items(),
+                start=1,
+            ):
                 with self.subTest(reviewer=reviewer):
-                    context["routing"]["delegated_agents"] = [reviewer]
-                    context["routing"]["delegation_policies"] = {
-                        reviewer: {
-                            "agent_type": reviewer,
-                            "action": action,
-                            "task_name_prefix": "local_review",
-                        }
-                    }
-                    context_path.write_text(
-                        json.dumps(context),
-                        encoding="utf-8",
-                    )
                     output = root / "{}-receipt.json".format(action)
                     captured = PLAYBOOK_ADAPTER.create_review_receipt(
                         context_path,
@@ -2506,6 +2516,7 @@ class CompanionTests(unittest.TestCase):
                         expected_sha256=captured["receipt_sha256"],
                         expected_action=action,
                     )
+                    local_receipts[action] = (output, captured)
                     self.assertEqual("local_review", verified["binding_kind"])
                     self.assertNotIn(
                         "recommended_executor",
@@ -2515,6 +2526,81 @@ class CompanionTests(unittest.TestCase):
                         "worker_contract_source",
                         verified["playbook"],
                     )
+                    nonce = str(index + 3) * 64
+                    binding = {
+                        "schema_version": "xiaoh-delegation-binding/v1",
+                        "prepared_at": now.isoformat(),
+                        "expires_at": (now + timedelta(minutes=10)).isoformat(),
+                        "session_id": "root-session",
+                        "task_id": context["task_id"],
+                        "task_context": str(context_path.resolve()),
+                        "authority_hash": VALIDATOR.task_authority_hash(context),
+                        "delegated_agent": reviewer,
+                        "agent_type": reviewer,
+                        "task_name": "local_review__r1__{}".format(nonce[:16]),
+                        "action": action,
+                        "review_round": 1,
+                        "purpose": "local_review",
+                        "subject_digest": captured["receipt"]["playbook"][
+                            "local_review_subject_sha256"
+                        ],
+                        "playbook_adapter_receipt": str(output.resolve()),
+                        "playbook_adapter_receipt_sha256": captured[
+                            "receipt_sha256"
+                        ],
+                        "nonce": nonce,
+                        "hook_path": str(hook.resolve()),
+                        "hook_hash": hashlib.sha256(hook.read_bytes()).hexdigest(),
+                    }
+                    report = VALIDATOR.Report()
+                    VALIDATOR.validate_execution_binding(
+                        binding,
+                        context,
+                        context_path,
+                        report,
+                        check_live_status=False,
+                    )
+                    self.assertFalse(report.errors, report.errors)
+
+                    root_receipt_path = root / "{}-worker-receipt.json".format(
+                        action
+                    )
+                    root_receipt = PLAYBOOK_ADAPTER.create_receipt(
+                        worker_path,
+                        status,
+                        root_receipt_path,
+                        action,
+                        context["playbook"]["xiaoh_workspace_id"],
+                        playbook_command=sys.executable,
+                    )
+                    binding["playbook_adapter_receipt"] = str(
+                        root_receipt_path.resolve()
+                    )
+                    binding["playbook_adapter_receipt_sha256"] = root_receipt[
+                        "receipt_sha256"
+                    ]
+                    report = VALIDATOR.Report()
+                    VALIDATOR.validate_execution_binding(
+                        binding,
+                        context,
+                        context_path,
+                        report,
+                        check_live_status=False,
+                    )
+                    self.assertIn(
+                        "professional execution binding cannot use a "
+                        "main-agent Playbook receipt",
+                        report.errors,
+                    )
+
+            for action, (output, captured) in local_receipts.items():
+                with self.subTest(action=action, phase="simultaneous-revalidation"):
+                    verified = PLAYBOOK_ADAPTER.validate_receipt(
+                        output,
+                        expected_sha256=captured["receipt_sha256"],
+                        expected_action=action,
+                    )
+                    self.assertEqual("local_review", verified["binding_kind"])
 
     def test_status_review_binding_rejects_write_actions_and_changed_sources(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -35,7 +35,7 @@ Playbook CLI的安装、升级、降级、重装、版本切换和安装源切�
   ↓
 Playbook：把已确认范围变成受管Workspace任务和可检查执行状态
   ↓
-专业Agent：在指定member worktree和worker contract内探索、实现或评审
+专业Agent：按动作使用status_review、worker或local_review绑定
   ↓
 Playbook：验证、提交、远端协作、合并和任务闭环
   ↓
@@ -68,7 +68,7 @@ Playbook：验证、提交、远端协作、合并和任务闭环
 | 哪个member worktree允许写入 | Playbook task/worker返回 |
 | 当前OpenSpec、Git flow和gate状态 | Playbook受管状态 |
 | 某专业Agent是否适合参与 | 小H角色路由 |
-| 专业Agent本轮能做什么 | 小H任务上下文与Playbook worker contract的权限交集 |
+| 专业Agent本轮能做什么 | 小H任务上下文与当前动作对应的Playbook适配绑定的权限交集 |
 | 实现是否达到业务目标 | 小H综合用户验收、测试和评审证据 |
 | 是否可以提交、推送、建MR或合并 | Playbook门禁 + 必要的人工授权 |
 | 哪些结论进入长期知识 | 小H知识评审和晋升流程 |
@@ -121,6 +121,14 @@ sequenceDiagram
 4. Workspace和仓库`AGENTS.md`：规定项目及仓库专属规则。
 5. Playbook worker/task brief：规定实际member、worktree、allowed scope、依赖、当前阶段和输出契约。
 6. 当前OpenSpec与Git/gate状态：规定要实现和验证的准确范围。
+
+Playbook短时收据按动作分为三类：
+
+- `status_review`用于worker产生前的只读需求和方案评审，只绑定当前任务状态与完整工件清单。
+- `worker`用于实现、操作和其他执行动作，绑定Playbook返回的执行者、member、worktree和授权范围。
+- `local_review`用于实现完成后的独立`code_review`与`verification`，绑定当前任务状态和唯一不可变评审对象，不继承实现worker的执行者拓扑。
+
+当单member任务由根线程直接实现时，implementation可以使用root-owned worker凭证。专业评审不能复用这份凭证，必须分别取得`local_review`绑定。
 
 这些约束不是覆盖关系，而是取交集。任一层更严格时使用更严格边界；发生冲突时停止副作用，由小H重新对账，不能由专业Agent自行扩大权限。
 
