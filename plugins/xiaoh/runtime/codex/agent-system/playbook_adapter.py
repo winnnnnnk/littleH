@@ -41,7 +41,10 @@ STATUS_REVIEW_ACTIONS = {
     "spec_rfc_review",
     "openspec_consistency_review",
 }
-BINDING_KINDS = {"worker", "status_review"}
+LOCAL_REVIEW_ACTIONS = {"verification", "code_review"}
+REVIEW_ACTIONS = STATUS_REVIEW_ACTIONS | LOCAL_REVIEW_ACTIONS
+REVIEW_BINDING_KINDS = {"status_review", "local_review"}
+BINDING_KINDS = {"worker"} | REVIEW_BINDING_KINDS
 INTEGRATION_MODES = {"auto", "enabled", "disabled"}
 ACTIVE_TASK_PHASES = {
     "specification",
@@ -1288,10 +1291,18 @@ def create_review_receipt(
     playbook_version: str | None = None,
     playbook_command: str = "playbook",
 ) -> dict[str, Any]:
-    if action not in STATUS_REVIEW_ACTIONS:
-        raise AdapterError(f"status_review不支持delegated action: {action}")
+    if action in STATUS_REVIEW_ACTIONS:
+        binding_kind = "status_review"
+        adapter_policy = "read_only_status_review_fail_closed"
+    elif action in LOCAL_REVIEW_ACTIONS:
+        binding_kind = "local_review"
+        adapter_policy = "independent_local_review_fail_closed"
+    else:
+        raise AdapterError(f"review不支持delegated action: {action}")
     status_json = status_json.expanduser().resolve()
     review = review_facts(task_context_json, artifacts)
+    if binding_kind == "local_review" and len(review["artifacts"]) != 1:
+        raise AdapterError("local_review必须绑定唯一评审对象文件")
     validation = validate_status_snapshot(status_json, review)
     if validation["contract"] not in STATUS_REVIEW_CONTRACTS:
         raise AdapterError(
@@ -1312,9 +1323,9 @@ def create_review_receipt(
         raise AdapterError("status_review task context缺少xiaoh_workspace_id")
     receipt = {
         "schema_version": RECEIPT_SCHEMA,
-        "binding_kind": "status_review",
+        "binding_kind": binding_kind,
         "captured_at": datetime.now(timezone.utc).isoformat(),
-        "adapter_policy": "read_only_status_review_fail_closed",
+        "adapter_policy": adapter_policy,
         "xiaoh_workspace_id": xiaoh_workspace_id.strip(),
         "delegated_action": action,
         "playbook": {
@@ -1329,6 +1340,10 @@ def create_review_receipt(
             **timestamps,
         },
     }
+    if binding_kind == "local_review":
+        receipt["playbook"]["local_review_subject_sha256"] = review["artifacts"][0][
+            "sha256"
+        ]
     if contract_source != status_json:
         receipt["playbook"].update(
             {
@@ -1385,11 +1400,12 @@ def validate_receipt(
     binding_kind = receipt.get("binding_kind", "worker")
     if binding_kind not in BINDING_KINDS:
         raise AdapterError("adapter receipt binding_kind无效")
-    if (
-        binding_kind == "status_review"
-        and receipt.get("delegated_action") not in STATUS_REVIEW_ACTIONS
-    ):
-        raise AdapterError("status_review receipt不得授权写入或编码动作")
+    review_actions = {
+        "status_review": STATUS_REVIEW_ACTIONS,
+        "local_review": LOCAL_REVIEW_ACTIONS,
+    }.get(binding_kind)
+    if review_actions is not None and receipt.get("delegated_action") not in review_actions:
+        raise AdapterError(f"{binding_kind} receipt授权了不允许的动作")
     if expected_action and receipt["delegated_action"] != expected_action:
         raise AdapterError("adapter receipt delegated_action与委派动作不一致")
     captured_at = parse_timestamp(receipt.get("captured_at"))
@@ -1400,11 +1416,11 @@ def validate_receipt(
     if not isinstance(playbook, dict):
         raise AdapterError("adapter receipt缺少playbook对象")
     if (
-        binding_kind == "status_review"
+        binding_kind in REVIEW_BINDING_KINDS
         and playbook.get("status_contract") not in STATUS_REVIEW_CONTRACTS
     ):
         raise AdapterError(
-            "status_review receipt要求Playbook可验证的当前状态契约"
+            "review receipt要求Playbook可验证的当前状态契约"
         )
     required_playbook_fields = [
         "task_workspace_id",
@@ -1438,9 +1454,24 @@ def validate_receipt(
                 "status_semantics_sha256",
             ]
         )
+        if binding_kind == "local_review":
+            required_playbook_fields.append("local_review_subject_sha256")
     for key in required_playbook_fields:
         if key not in playbook:
             raise AdapterError(f"adapter receipt缺少playbook.{key}")
+    if binding_kind == "local_review":
+        artifacts = playbook.get("artifacts")
+        subject_digest = playbook.get("local_review_subject_sha256")
+        if (
+            not isinstance(artifacts, list)
+            or len(artifacts) != 1
+            or not isinstance(artifacts[0], dict)
+            or not isinstance(subject_digest, str)
+            or len(subject_digest) != 64
+            or any(character not in "0123456789abcdef" for character in subject_digest)
+            or artifacts[0].get("sha256") != subject_digest
+        ):
+            raise AdapterError("local_review评审对象摘要与唯一artifact不一致")
     if check_sources:
         source_pairs = [
             ("status_source", "status_sha256"),
@@ -1526,11 +1557,11 @@ def validate_receipt(
             and validation["contract"] != playbook["status_contract"]
         ):
             raise AdapterError("adapter receipt与status状态契约不一致")
-        if binding_kind == "status_review" and (
+        if binding_kind in REVIEW_BINDING_KINDS and (
             validation["semantics"] != playbook["status_semantics"]
             or validation["semantics_sha256"] != playbook["status_semantics_sha256"]
         ):
-            raise AdapterError("status_review捕获状态语义已变化")
+            raise AdapterError("review捕获状态语义已变化")
     if check_live_status:
         live_validation = validate_live_status_snapshot(
             playbook,
@@ -1542,12 +1573,12 @@ def validate_receipt(
                 )
             },
         )
-        if binding_kind == "status_review" and (
+        if binding_kind in REVIEW_BINDING_KINDS and (
             live_validation["semantics"] != playbook["status_semantics"]
             or live_validation["semantics_sha256"]
             != playbook["status_semantics_sha256"]
         ):
-            raise AdapterError("status_review实时任务状态语义已变化")
+            raise AdapterError("review实时任务状态语义已变化")
     return receipt
 
 
@@ -1577,7 +1608,7 @@ def build_parser() -> argparse.ArgumentParser:
     capture_review.add_argument("--artifact", action="append", required=True)
     capture_review.add_argument("--output", required=True)
     capture_review.add_argument(
-        "--action", required=True, choices=sorted(STATUS_REVIEW_ACTIONS)
+        "--action", required=True, choices=sorted(REVIEW_ACTIONS)
     )
     capture_review.add_argument("--playbook-version")
     capture_review.add_argument("--playbook-command", default="playbook")

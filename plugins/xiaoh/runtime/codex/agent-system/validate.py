@@ -18,6 +18,7 @@ from pathlib import Path
 
 from playbook_adapter import (
     ALLOWED_ACTIONS as ALLOWED_DELEGATED_ACTIONS,
+    LOCAL_REVIEW_ACTIONS,
     STATUS_REVIEW_ACTIONS,
     AdapterError,
     configured_integration_mode,
@@ -34,6 +35,7 @@ OBSIDIAN_VAULT = Path(
 ).expanduser()
 AGENTS_DIR = CODEX / "agents"
 ROOT_AGENT = "xiaoh"
+ROOT_AGENT_EXECUTION_MODES = {"main_agent_direct", "main_agent_sequential"}
 ROOT_AGENT_HOOK = CODEX / "hooks/block_reserved_root_agent.py"
 VAULT_WRITE_HOOK = CODEX / "hooks/guard_vault_writes.py"
 HOOK_RUNTIME_VERIFIER = CODEX / "hooks/verify_agent_hook_runtime.py"
@@ -57,6 +59,15 @@ ALLOWED_SPEC_RFC_STATUS = {
     "confirmation_pending", "confirmed",
 }
 ALLOWED_REQUIREMENT_CHECK_STATUS = {"not_required", "pending", "passed", "failed"}
+
+
+def root_agent_owns_worker(worker):
+    return (
+        worker.get("execution_mode") in ROOT_AGENT_EXECUTION_MODES
+        and worker.get("recommended_executor") == "main_agent"
+    )
+
+
 ALLOWED_RETROACTIVE_STATUS = {"not_required", "pending", "in_progress", "review_pending", "completed"}
 ALLOWED_SKILL_STATUS = {"pending", "in_progress", "completed"}
 ALLOWED_SKILL_CONFIRMATION_STATUS = {"not_required", "pending", "confirmed"}
@@ -1583,7 +1594,7 @@ def validate_playbook_binding(
     if not check_paths:
         if require_binding and not has_delegation:
             report.error(
-                "main_agent_direct requires worker identity and receipt path validation"
+                "root-owned Playbook execution requires worker identity and receipt path validation"
             )
         return None
     try:
@@ -1636,19 +1647,24 @@ def validate_playbook_binding(
             return None
     else:
         current_worker = receipt_playbook
-        if actions and not actions.issubset(STATUS_REVIEW_ACTIONS):
-            report.error("status_review binding can authorize read-only review actions only")
-    main_agent_direct = (
+        allowed_review_actions = (
+            STATUS_REVIEW_ACTIONS
+            if binding_kind == "status_review"
+            else LOCAL_REVIEW_ACTIONS
+        )
+        if actions and not actions.issubset(allowed_review_actions):
+            report.error(
+                "{} binding cannot authorize the requested action".format(binding_kind)
+            )
+    root_owned_execution = (
         binding_kind == "worker"
-        and
-        current_worker.get("execution_mode") == "main_agent_direct"
-        and current_worker.get("recommended_executor") == "main_agent"
+        and root_agent_owns_worker(current_worker)
     )
-    if main_agent_direct:
+    if root_owned_execution:
         if routing.get("root_agent") != ROOT_AGENT:
-            report.error("main_agent_direct requires the current XiaoH root agent")
+            report.error("root-owned Playbook execution requires the current XiaoH root agent")
         if delegated_agents or delegated_actions:
-            report.error("main_agent_direct cannot declare delegated agents or actions")
+            report.error("root-owned Playbook execution cannot declare delegated agents or actions")
     else:
         if not has_delegation:
             report.error("one Playbook adapter receipt can bind exactly one delegated action")
@@ -1823,23 +1839,37 @@ def validate_execution_binding(
                 report.error("invalid execution binding Playbook receipt: {}".format(exc))
             else:
                 facts = receipt.get("playbook", {})
-                if receipt.get("binding_kind") == "status_review":
-                    artifact_digest = facts.get("artifact_manifest_sha256")
+                binding_kind = receipt.get("binding_kind", "worker")
+                if binding_kind in {"status_review", "local_review"}:
+                    artifact_digest = (
+                        facts.get("local_review_subject_sha256")
+                        if binding_kind == "local_review"
+                        else facts.get("artifact_manifest_sha256")
+                    )
                     if subject_digest is None:
                         report.error(
-                            "status_review execution binding requires subject_digest"
+                            "review execution binding requires subject_digest"
                         )
                     elif subject_digest != artifact_digest:
                         report.error(
-                            "status_review subject_digest does not match artifact manifest"
+                            "review subject_digest does not match artifact manifest"
+                        )
+                if binding_kind == "local_review":
+                    if purpose != "local_review":
+                        report.error(
+                            "local_review execution binding requires local_review purpose"
+                        )
+                    if review_round is None:
+                        report.error(
+                            "local_review execution binding requires review_round"
                         )
                 if (
-                    facts.get("execution_mode") == "main_agent_direct"
+                    binding_kind == "worker"
                     and facts.get("recommended_executor") == "main_agent"
                 ):
                     report.error(
                         "professional execution binding cannot use a "
-                        "main_agent_direct Playbook receipt"
+                        "main-agent Playbook receipt"
                     )
                 comparisons = {
                     "xiaoh_workspace_id": receipt.get("xiaoh_workspace_id"),
@@ -1899,11 +1929,8 @@ def validate_root_playbook_receipt(
     except (AdapterError, OSError, KeyError) as exc:
         report.error("invalid root Playbook worker identity: {}".format(exc))
         return
-    if (
-        worker.get("execution_mode") != "main_agent_direct"
-        or worker.get("recommended_executor") != "main_agent"
-    ):
-        report.error("root Playbook receipt is not authorized for main_agent_direct")
+    if not root_agent_owns_worker(worker):
+        report.error("root Playbook receipt is not authorized for root-owned execution")
     playbook = context.get("playbook", {})
     comparisons = {
         "xiaoh_workspace_id": receipt.get("xiaoh_workspace_id"),

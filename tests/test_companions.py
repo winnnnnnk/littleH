@@ -2380,6 +2380,52 @@ class CompanionTests(unittest.TestCase):
                 )
                 self.assertEqual(action, verified["delegated_action"])
 
+    def test_local_review_binding_supports_independent_code_and_test_review(self):
+        expected_actions = {
+            "code_quality_reviewer": "code_review",
+            "test_integration_verifier": "verification",
+        }
+        self.assertEqual(
+            set(expected_actions.values()),
+            PLAYBOOK_ADAPTER.LOCAL_REVIEW_ACTIONS,
+        )
+        for reviewer, action in expected_actions.items():
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                context, context_path, status, _, _, artifact = (
+                    self.write_status_review_fixture(root)
+                )
+                context["routing"]["delegated_agents"] = [reviewer]
+                context["routing"]["delegation_policies"] = {
+                    reviewer: {
+                        "agent_type": reviewer,
+                        "action": action,
+                        "task_name_prefix": "local_review",
+                    }
+                }
+                context_path.write_text(json.dumps(context), encoding="utf-8")
+                output = root / "{}-binding.json".format(action)
+                captured = PLAYBOOK_ADAPTER.create_review_receipt(
+                    context_path,
+                    status,
+                    [str(artifact)],
+                    output,
+                    action,
+                    playbook_command=sys.executable,
+                )
+                verified = PLAYBOOK_ADAPTER.validate_receipt(
+                    output,
+                    expected_sha256=captured["receipt_sha256"],
+                    expected_action=action,
+                )
+
+                self.assertEqual("local_review", verified["binding_kind"])
+                self.assertEqual(
+                    hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                    verified["playbook"]["local_review_subject_sha256"],
+                )
+                self.assertNotIn("worker_contract_source", verified["playbook"])
+
     def test_status_review_binding_rejects_write_actions_and_changed_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -2670,9 +2716,136 @@ class CompanionTests(unittest.TestCase):
                 check_live_status=False,
             )
             self.assertIn(
-                "status_review subject_digest does not match artifact manifest",
+                "review subject_digest does not match artifact manifest",
                 report.errors,
             )
+
+    def test_local_review_execution_binding_requires_local_review_purpose(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            context, context_path, status, _, _, artifact = (
+                self.write_status_review_fixture(root)
+            )
+            context["routing"]["delegated_agents"] = ["code_quality_reviewer"]
+            context["routing"]["delegation_policies"] = {
+                "code_quality_reviewer": {
+                    "agent_type": "code_quality_reviewer",
+                    "action": "code_review",
+                    "task_name_prefix": "local_review",
+                }
+            }
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            receipt_path = root / "local-review-binding.json"
+            captured = PLAYBOOK_ADAPTER.create_review_receipt(
+                context_path,
+                status,
+                [str(artifact)],
+                receipt_path,
+                "code_review",
+                playbook_command=sys.executable,
+            )
+            hook = root / "hook.py"
+            hook.write_text("# hook\n", encoding="utf-8")
+            now = datetime.now(timezone.utc)
+            nonce = "3" * 64
+            binding = {
+                "schema_version": "xiaoh-delegation-binding/v1",
+                "prepared_at": now.isoformat(),
+                "expires_at": (now + timedelta(minutes=10)).isoformat(),
+                "session_id": "root-session",
+                "task_id": context["task_id"],
+                "task_context": str(context_path.resolve()),
+                "authority_hash": VALIDATOR.task_authority_hash(context),
+                "delegated_agent": "code_quality_reviewer",
+                "agent_type": "code_quality_reviewer",
+                "task_name": "local_review__r1__{}".format(nonce[:16]),
+                "action": "code_review",
+                "review_round": 1,
+                "purpose": "local_review",
+                "subject_digest": captured["receipt"]["playbook"][
+                    "local_review_subject_sha256"
+                ],
+                "playbook_adapter_receipt": str(receipt_path.resolve()),
+                "playbook_adapter_receipt_sha256": captured["receipt_sha256"],
+                "nonce": nonce,
+                "hook_path": str(hook.resolve()),
+                "hook_hash": hashlib.sha256(hook.read_bytes()).hexdigest(),
+            }
+            report = VALIDATOR.Report()
+            VALIDATOR.validate_execution_binding(
+                binding,
+                context,
+                context_path,
+                report,
+                check_live_status=False,
+            )
+            self.assertFalse(report.errors, report.errors)
+
+            binding["purpose"] = "implementation"
+            report = VALIDATOR.Report()
+            VALIDATOR.validate_execution_binding(
+                binding,
+                context,
+                context_path,
+                report,
+                check_live_status=False,
+            )
+            self.assertIn(
+                "local_review execution binding requires local_review purpose",
+                report.errors,
+            )
+
+    def test_local_review_binding_rejects_multiple_subject_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, context_path, status, _, _, artifact = (
+                self.write_status_review_fixture(root)
+            )
+            second = artifact.with_name("second.md")
+            second.write_text("# Second\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                PLAYBOOK_ADAPTER.AdapterError,
+                "必须绑定唯一评审对象文件",
+            ):
+                PLAYBOOK_ADAPTER.create_review_receipt(
+                    context_path,
+                    status,
+                    [str(artifact), str(second)],
+                    root / "local-review-binding.json",
+                    "code_review",
+                    playbook_command=sys.executable,
+                )
+
+    def test_local_review_binding_rejects_resigned_subject_digest_tampering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, context_path, status, _, _, artifact = (
+                self.write_status_review_fixture(root)
+            )
+            output = root / "local-review-binding.json"
+            PLAYBOOK_ADAPTER.create_review_receipt(
+                context_path,
+                status,
+                [str(artifact)],
+                output,
+                "code_review",
+                playbook_command=sys.executable,
+            )
+            receipt = json.loads(output.read_text(encoding="utf-8"))
+            receipt["playbook"]["local_review_subject_sha256"] = "f" * 64
+            receipt.pop("binding_sha256")
+            receipt["binding_sha256"] = PLAYBOOK_ADAPTER.canonical_hash(receipt)
+            output.write_text(json.dumps(receipt), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                PLAYBOOK_ADAPTER.AdapterError,
+                "评审对象摘要与唯一artifact不一致",
+            ):
+                PLAYBOOK_ADAPTER.validate_receipt(
+                    output,
+                    expected_sha256=PLAYBOOK_ADAPTER.file_hash(output),
+                    expected_action="code_review",
+                )
 
     def test_playbook_adapter_capture_and_verify_bind_one_action(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -3571,12 +3744,14 @@ class CompanionTests(unittest.TestCase):
         self.assertFalse(report.errors)
         self.assertEqual("implementation", receipt["delegated_action"])
 
-    def test_managed_main_agent_direct_requirement_gate_accepts_empty_delegation(self):
+    def assert_managed_root_mode_requirement_gate_accepts_empty_delegation(
+        self, execution_mode
+    ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             worker, status, worktree = self.write_playbook_snapshots(
                 root,
-                execution_mode="main_agent_direct",
+                execution_mode=execution_mode,
                 recommended_executor="main_agent",
             )
             output = root / "binding.json"
@@ -3637,6 +3812,86 @@ class CompanionTests(unittest.TestCase):
                 )
 
         self.assertFalse(report.errors)
+
+    def test_managed_root_modes_accept_empty_delegation(self):
+        for execution_mode in ("main_agent_direct", "main_agent_sequential"):
+            with self.subTest(execution_mode=execution_mode):
+                self.assert_managed_root_mode_requirement_gate_accepts_empty_delegation(
+                    execution_mode
+                )
+
+    def test_unmanaged_playbook_binding_remains_standalone(self):
+        report = VALIDATOR.Report()
+        receipt = VALIDATOR.validate_playbook_binding(
+            {"playbook": {"managed": False}},
+            report,
+            require_binding=True,
+        )
+
+        self.assertIsNone(receipt)
+        self.assertFalse(report.errors, report.errors)
+
+    def assert_root_playbook_receipt_rejected(
+        self, execution_mode, recommended_executor
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            worker, status, worktree = self.write_playbook_snapshots(
+                root,
+                execution_mode=execution_mode,
+                recommended_executor=recommended_executor,
+            )
+            output = root / "binding.json"
+            captured = PLAYBOOK_ADAPTER.create_receipt(
+                worker,
+                status,
+                output,
+                "implementation",
+                "stable-xiaoh-workspace",
+                playbook_command=sys.executable,
+            )
+            context = {
+                "schema_version": "1.6",
+                "playbook": {
+                    "xiaoh_workspace_id": "stable-xiaoh-workspace",
+                    "task_workspace_id": "pb-task-workspace",
+                    "change_id": "change-1",
+                    "member": "member-a",
+                    "member_worktree": str(worktree.resolve()),
+                    "workspace_root": str(root.resolve()),
+                    "allowed_scope": [str(worktree.resolve())],
+                },
+            }
+            report = VALIDATOR.Report()
+
+            VALIDATOR.validate_root_playbook_receipt(
+                context,
+                output,
+                captured["receipt_sha256"],
+                "implementation",
+                report,
+                check_live_status=False,
+            )
+
+        self.assertIn(
+            "root Playbook receipt is not authorized for root-owned execution",
+            report.errors,
+        )
+
+    def test_root_playbook_receipt_requires_whitelisted_main_agent_mode(self):
+        for execution_mode, recommended_executor in (
+            ("main_agent_sequential", "subagent"),
+            ("topology_layer_parallel", "main_agent"),
+            ("dependencies_not_satisfied", "main_agent"),
+            ("unknown_mode", "main_agent"),
+        ):
+            with self.subTest(
+                execution_mode=execution_mode,
+                recommended_executor=recommended_executor,
+            ):
+                self.assert_root_playbook_receipt_rejected(
+                    execution_mode, recommended_executor
+                )
 
     def test_managed_delegated_requirement_gate_accepts_execution_binding(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -3730,12 +3985,14 @@ class CompanionTests(unittest.TestCase):
 
         self.assertFalse(report.errors, report.errors)
 
-    def test_managed_delegated_binding_rejects_main_agent_direct_receipt(self):
+    def assert_managed_delegated_binding_rejects_root_receipt(
+        self, execution_mode, expect_root_authorized
+    ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             worker, status, worktree = self.write_playbook_snapshots(
                 root,
-                execution_mode="main_agent_direct",
+                execution_mode=execution_mode,
                 recommended_executor="main_agent",
             )
             receipt_path = root / "root-binding.json"
@@ -3844,16 +4101,34 @@ class CompanionTests(unittest.TestCase):
                     check_playbook_live_status=False,
                 )
 
-        self.assertFalse(root_report.errors, root_report.errors)
+        if expect_root_authorized:
+            self.assertFalse(root_report.errors, root_report.errors)
+        else:
+            self.assertIn(
+                "root Playbook receipt is not authorized for root-owned execution",
+                root_report.errors,
+            )
         for report in (binding_report, gate_report):
             self.assertTrue(
                 any(
                     "professional execution binding cannot use a "
-                    "main_agent_direct Playbook receipt" in error
+                    "main-agent Playbook receipt" in error
                     for error in report.errors
                 ),
                 report.errors,
             )
+
+    def test_managed_delegated_binding_rejects_root_owned_receipts(self):
+        for execution_mode, expect_root_authorized in (
+            ("main_agent_direct", True),
+            ("main_agent_sequential", True),
+            ("dependencies_not_satisfied", False),
+            ("unknown_mode", False),
+        ):
+            with self.subTest(execution_mode=execution_mode):
+                self.assert_managed_delegated_binding_rejects_root_receipt(
+                    execution_mode, expect_root_authorized
+                )
 
     def test_schema_16_managed_scope_must_intersect_task_scope(self):
         with tempfile.TemporaryDirectory() as temporary:

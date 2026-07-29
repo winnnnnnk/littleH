@@ -33,6 +33,13 @@ local specialist judgment.
    `<task_name_prefix>__r<round>__<nonce-prefix>` task name; use the returned `tool_input`
    exactly. Never reuse an Agent session, binding, Playbook receipt, proof, run record, or
    concrete task name.
+   In `playbook_managed` mode, capture a fresh `local_review` receipt from the current task status
+   and immutable review subject for each role. Use action `code_review` for
+   `code_quality_reviewer`, action `verification` for `test_integration_verifier`, and
+   `purpose=local_review`. Pass the subject file as the receipt's only artifact and use
+   `playbook.local_review_subject_sha256` as the execution binding's `subject_digest`. Do not reuse
+   the implementation worker receipt; a
+   `main_agent_direct` implementation topology does not suppress independent review.
 5. Run one multi-role review round. Keep each role's raw report in the task evidence directory.
 6. Reconcile findings, repair the implementation, rerun affected verification, and update the
    immutable subject when it changed.

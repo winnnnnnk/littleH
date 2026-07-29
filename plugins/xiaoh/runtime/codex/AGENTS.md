@@ -194,7 +194,7 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 - 新建正式上下文使用schema 1.6，并先记录唯一`intent.domain`和交互证据状态；schema 1.2至1.5仅兼容已有任务和历史证据，只允许根线程只读审计，不得正式委派或发起新的生命周期动作。活动中的schema 1.5任务必须用`validate.py --migrate-task-context <old> --output <new>`显式生成不可覆盖的1.6修订。
 - schema 1.6业务任务还必须记录项目历史召回状态和清单证据、需求工件路由、风险信号、用户表达类型、证据冲突、范围缩减依据、Spec+RFC状态、显式Skill执行证据、OpenSpec一致性与追溯状态、绕过理由和遗漏补救状态。
 - 正式委派优先复制模板形成任务级 JSON，并在下发前执行 `python3 __CODEX_HOME__/agent-system/validate.py --task-context <path>`。
-- 只有任务上下文明确标记为Playbook受管时，正式委派才启用`xiaoh-playbook-adapter`。OpenSpec前的只读评审动作可由适配器从最新完整`task_truth_v1` task status和完整不可变artifact清单生成`status_review`短时凭证；legacy `current_state`只保留worker兼容，不得用于status review。实现、验证、操作等非只读动作仍必须从当前worker JSON和紧邻取得的完整task status生成`worker`短时凭证。schema 1.6任务上下文只记录两类Workspace身份、change、member、worktree和allowed scope等稳定身份；binding kind、凭证、完整review artifacts和唯一delegated action写入本次`xiaoh-delegation-binding/v1`，不得回写稳定上下文。
+- 只有任务上下文明确标记为Playbook受管时，正式委派才启用`xiaoh-playbook-adapter`。OpenSpec前的只读评审动作可由适配器从最新完整`task_truth_v1` task status和完整不可变artifact清单生成`status_review`短时凭证；实现后的独立`code_review`和`verification`使用同一状态与工件指纹生成`local_review`短时凭证，不继承实现执行者拓扑，也不得修改受管源文件或推进生命周期。legacy `current_state`只保留worker兼容，不得用于两类review binding。实现、操作等执行动作仍必须从当前worker JSON和紧邻取得的完整task status生成`worker`短时凭证。schema 1.6任务上下文只记录两类Workspace身份、change、member、worktree和allowed scope等稳定身份；binding kind、凭证、完整review artifacts和唯一delegated action写入本次`xiaoh-delegation-binding/v1`，不得回写稳定上下文。
 - 每次正式 `spawn_agent`/`Agent` 委派先逐行携带 `task_id: ...`、`task_context: <绝对路径>`、`authority_hash: <SHA-256>`、`delegated_agent: <已登记角色>`。`--prepare`必须依据角色策略、轮次和一次性nonce生成`<prefix>__r<round>__<nonce-prefix>`形式的唯一`task_name`；具体名称不写入稳定上下文，调用方不得自行固定或复用。
 - 正式委派还必须由工具参数提供与 `delegated_agent` 一致的 `agent_type`，用来证明实际加载了对应 `agents/*.toml`。如果当前模型或工具面只提供 `task_name/message/fork_turns`，则专业 Agent 委派能力视为不可用；可以产生不具角色证明力的咨询意见，但不得记录为该专业角色完成，也不得用于通过独立评审门禁。
 - 使用当前协作工具正式委派前，根线程把候选`tool_input`和本轮绑定参数传给`block_reserved_root_agent.py --config "__XIAOH_CONFIG__" --prepare`。命令原子生成一次性执行绑定并返回含唯一`task_name`、`execution_binding`和`binding_hash`的最终`tool_input`；根线程必须原样使用返回值发起一次委派，不得继续使用输入中的候选名称。原始`message`只是不可信传输文本，不能授予或扩大权限；专业Agent的权威有效简报由稳定`authority_hash`、执行绑定、角色、实际`agent_type`和唯一`task_name`确定，并由`SubagentStart`以developer context注入。消费前重新验证稳定上下文、绑定完整性、项目召回来源内容哈希、Playbook凭证启动时有效性和内外层一致性；claimed与proof证据不得覆盖。绑定和随机回执均不得复用，只有`SubagentStop`成功认证回执、实际身份和转录的schema 1.3证明才能计入正式角色证据。
@@ -239,7 +239,7 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 Playbook是可选集成，不是小H核心依赖。`~/.xiaoh/config.json`中的`integrations.playbook`支持`auto`（默认）、`enabled`和`disabled`：`auto`只在任务明确受管时激活；`disabled`禁止受管委派；缺少Playbook时，独立使用小H不降级。
 
-任务上下文明确`playbook.managed=true`后，必须调用`xiaoh-playbook-adapter`并遵循该Skill的完整捕获、时效和重验流程。小H只读取Playbook现有状态，不修改Playbook来适配自己；`status_review`只允许白名单中的只读评审动作，其他动作必须使用worker contract。专业Agent只在适配凭证、任务上下文和仓库规则的权限交集内工作。任何适配凭证缺失、来源变化、状态冲突或接口不兼容都使当前受管动作失败关闭，但不影响非受管小H能力。
+任务上下文明确`playbook.managed=true`后，必须调用`xiaoh-playbook-adapter`并遵循该Skill的完整捕获、时效和重验流程。小H只读取Playbook现有状态，不修改Playbook来适配自己；`status_review`只允许白名单中的OpenSpec前只读评审动作，`local_review`只允许`purpose=local_review`的独立`code_review`和`verification`，其余执行动作必须使用worker contract。专业Agent只在适配凭证、任务上下文和仓库规则的权限交集内工作。任何适配凭证缺失、来源变化、状态冲突或接口不兼容都使当前受管动作失败关闭，但不影响非受管小H能力。
 
 ## Playbook CLI版本维护边界
 

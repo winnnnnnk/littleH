@@ -1,6 +1,6 @@
 ---
 name: xiaoh-playbook-adapter
-description: Bind XiaoH business-project delegation to current AI Dev Playbook task facts without modifying Playbook. Use a status_review binding for pre-worker read-only review actions and a worker binding for implementation or other non-read-only actions.
+description: Bind XiaoH business-project delegation to current AI Dev Playbook task facts without modifying Playbook. Use status_review for pre-worker read-only reviews, local_review for independent implementation review, and worker for execution actions.
 ---
 
 # 小H Playbook适配
@@ -54,9 +54,10 @@ For an actual Playbook-managed delegation, require this evidence-backed probe to
 ## Choose one binding kind
 
 - `status_review`: only for `read_only_analysis`, `design_review`, `spec_rfc_review`, and `openspec_consistency_review`. It requires either the complete `task_truth_v1` contract or the dedicated public status contract with a bound Task Truth source and current Git identity. It does not require or emulate `worker start`; legacy `current_state` remains compatible only with worker bindings.
-- `worker`: required for every action outside that whitelist, including implementation, verification, operations, task start, authoring, confirmation, and code review.
+- `local_review`: only for implementation-independent `code_review` and `verification` under `purpose=local_review`. It binds current task status and the immutable reviewed artifact set without inheriting the implementation executor topology. It cannot authorize implementation, operations, authoring, confirmation, or Playbook lifecycle changes.
+- `worker`: required for execution actions, including implementation, operations, task start, authoring, and confirmation.
 
-Never use `status_review` as a fallback for a missing worker contract when the delegated action can write files or advance lifecycle state.
+Never use either review binding as a fallback for a missing worker contract when the delegated action writes tracked source or advances lifecycle state.
 
 ## Capture a status review binding
 
@@ -74,7 +75,9 @@ Never use `status_review` as a fallback for a missing worker contract when the d
      --output json --full > <task-evidence>/playbook-status.json
    ```
 
-4. Create the binding from that status, the task context, and every reviewed artifact:
+4. Create the binding from that status and the task context. For `status_review`, pass every
+   reviewed source artifact. For `local_review`, pass exactly one immutable review-subject file
+   whose SHA-256 is the `xiaoh-local-review` subject value:
 
    ```bash
    python3 ../../runtime/codex/agent-system/playbook_adapter.py capture-review \
@@ -88,16 +91,20 @@ Never use `status_review` as a fallback for a missing worker contract when the d
 
 5. Pass `receipt_path` as `playbook_adapter_receipt`, `receipt_sha256` as
    `playbook_adapter_receipt_sha256`, and the receipt's
-   `playbook.artifact_manifest_sha256` as `subject_digest` into the one-time execution-binding
-   preparation. The receipt already carries `binding_kind=status_review` and the complete immutable
-   artifact set. Do not copy either into the stable task context. A receipt refresh therefore leaves
-   the stable `authority_hash` unchanged.
+   `playbook.artifact_manifest_sha256` as `subject_digest` for `status_review`, or
+   `playbook.local_review_subject_sha256` for `local_review`, into the one-time
+   execution-binding preparation. The receipt carries `binding_kind=status_review` for the four
+   pre-worker read-only actions and `binding_kind=local_review` for `code_review` or
+   `verification`, plus the immutable artifact set. Do not copy either into the stable task
+   context. A receipt refresh therefore leaves the stable `authority_hash` unchanged.
 6. Validate the stable task context and the generated execution binding. Immediately before
    `SubagentStart`,
    re-read live task status, require its captured task/member semantics and current Git identity to
    match the fingerprint, and re-hash every declared artifact.
 
-`status_review` does not approve the artifact, create OpenSpec, start a worker, or modify Playbook state.
+Neither review binding approves the artifact, creates OpenSpec, starts a worker, or modifies
+Playbook state. A `local_review` verifier may execute tests inside the already authorized member
+worktree, but it may not edit tracked source or advance the managed lifecycle.
 
 ## Capture a worker binding
 
@@ -148,7 +155,7 @@ Never use `status_review` as a fallback for a missing worker contract when the d
 ## Refresh and failure behavior
 
 - Capture a new binding after worker restart, member change, worktree recreation, scope change, task takeover, task resume, or any material task-status change.
-- Capture a new `status_review` binding after any declared artifact-set or artifact-content change,
+- Capture a new review binding after any declared artifact-set or artifact-content change,
   or any task/member/worktree/phase/terminal/closure/cleaned-state change. A stable authority change
   also requires a new task-context revision before capture.
 - Bindings expire after 15 minutes by default. Never extend the timestamp or edit a receipt; recapture it.
