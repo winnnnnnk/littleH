@@ -2,8 +2,8 @@
   "schema_version": "1.4",
   "policy": {
     "root_agent": "xiaoh",
-    "selection_rule": "root_agent 固定为小H且不进入委派列表；选择全部 required_agents；optional_agents 只有在任务事实触发时使用；其他角色视为过度路由",
-    "independent_review_rule": "所有实现任务至少由两个未承担实现的判断角色完成多轮本地评审和收敛复审；其他高风险设计也必须独立评审，小H负责综合但不能替代专业评审"
+    "selection_rule": "root_agent 固定为xiaoh且不进入委派列表；选择全部 required_agents；optional_agents 只有在任务事实触发时使用；其他角色视为过度路由",
+    "independent_review_rule": "所有实现任务至少由两个未承担实现的判断角色完成多轮本地评审和收敛复审；其他高风险设计也必须独立评审，xiaoh负责综合但不能替代专业评审"
   },
   "cases": [
     {
@@ -37,7 +37,7 @@
       "required_agents": ["java_code_explorer"],
       "optional_agents": [],
       "independent_review_agents": [],
-      "rationale": "代码探索角色提供证据，小H整理结论。"
+      "rationale": "代码探索角色提供证据，xiaoh整理结论。"
     },
     {
       "id": "java-bug-diagnosis",
@@ -173,14 +173,14 @@
     },
     {
       "id": "global-capability-evaluation",
-      "title": "小H全局能力评估",
-      "prompt": "检查某个静态分析平台是否适合扩展小H的全局能力，本轮不要修改任何业务项目。",
+      "title": "xiaoh全局能力评估",
+      "prompt": "检查某个静态分析平台是否适合扩展xiaoh的全局能力，本轮不要修改任何业务项目。",
       "intent_domain": "global_agent_capability",
       "risk_level": "low",
       "required_agents": [],
       "optional_agents": [],
       "independent_review_agents": [],
-      "rationale": "目标对象是小H全局能力；禁止据此创建业务 Playbook task、业务 OpenSpec 或修改业务仓库。"
+      "rationale": "目标对象是xiaoh全局能力；禁止据此创建业务 Playbook task、业务 OpenSpec 或修改业务仓库。"
     },
     {
       "id": "playbook-platform-capability",

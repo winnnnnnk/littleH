@@ -1,4 +1,4 @@
 interface:
-  display_name: "小H知识晋升"
+  display_name: "xiaoh知识晋升"
   short_description: "将已核实候选晋升为项目、领域、复用或个人系统知识"
   default_prompt: "使用 $xiaoh-knowledge-promotion 核对知识候选并晋升到正确的长期知识层。"

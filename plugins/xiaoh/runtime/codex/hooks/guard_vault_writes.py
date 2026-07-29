@@ -36,7 +36,7 @@ def runtime_arguments(arguments: list[str]) -> list[str]:
         return result
     index = result.index("--config")
     if index + 1 >= len(result) or not result[index + 1].strip():
-        raise ValueError("--config缺少小H配置路径")
+        raise ValueError("--config缺少xiaoh配置路径")
     os.environ["XIAOH_CONFIG"] = str(Path(result[index + 1]).expanduser().resolve())
     del result[index : index + 2]
     return result
@@ -52,13 +52,13 @@ def configured_vault() -> Path:
         value = json.loads(path.read_text(encoding="utf-8"))
         raw = value["obsidian_vault"]
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"无法读取小H唯一Vault配置 {path}: {exc}") from exc
+        raise ValueError(f"无法读取xiaoh唯一Vault配置 {path}: {exc}") from exc
     vault = Path(raw).expanduser()
     if not vault.is_absolute():
-        raise ValueError(f"小H Vault配置必须是绝对路径: {vault}")
+        raise ValueError(f"xiaoh Vault配置必须是绝对路径: {vault}")
     vault = vault.resolve()
     if not (vault.is_dir() and (vault / ".obsidian").is_dir()):
-        raise ValueError(f"小H配置路径不是有效Obsidian Vault: {vault}")
+        raise ValueError(f"xiaoh配置路径不是有效Obsidian Vault: {vault}")
     return vault
 
 
@@ -108,7 +108,7 @@ def check_path(raw: str, base: Path, allowed: Path) -> str | None:
     if root is not None and root != allowed:
         return f"拒绝写入未配置的Obsidian Vault: {root}；唯一允许路径: {allowed}"
     if lexical_root == allowed and not is_within(resolved, allowed):
-        return f"拒绝通过符号链接逃逸小H Vault: {candidate}"
+        return f"拒绝通过符号链接逃逸xiaoh Vault: {candidate}"
     return None
 
 

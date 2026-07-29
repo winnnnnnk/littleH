@@ -1,16 +1,16 @@
-# 小H实现设计
+# xiaoh实现设计
 
 > 适用版本：2.17.3
 >
-> 本文面向维护者，说明小H的组件、事实源、运行门禁和任务生命周期。
+> 本文面向维护者，说明xiaoh的组件、事实源、运行门禁和任务生命周期。
 >
 > 不包含：任何客户、项目、仓库、任务、账号、凭据或本机绝对路径。
 
-第一次使用小H，请先读[认识小H](xiaoh-guide.md)。只想了解Playbook分工，请读[小H与Playbook的关系](xiaoh-playbook-relationship.md)。本文保留实现细节，适合开发、排障和发布检查。
+第一次使用xiaoh，请先读[认识xiaoh](xiaoh-guide.md)。只想了解Playbook分工，请读[xiaoh与Playbook的关系](xiaoh-playbook-relationship.md)。本文保留实现细节，适合开发、排障和发布检查。
 
-## 1. 小H是什么
+## 1. xiaoh是什么
 
-小H是运行在Codex根对话中的研发协调系统，不是一个同名子Agent，也不是只靠一段长Prompt工作的聊天角色。
+xiaoh是运行在Codex根对话中的研发协调系统，不是一个同名子Agent，也不是只靠一段长Prompt工作的聊天角色。
 
 它由以下部分共同实现：
 
@@ -23,11 +23,11 @@
 7. 本地运行时管理：负责安装、更新、诊断、Workspace注册和托管任务绑定。
 8. Obsidian研发系统：将当前工作、项目进度和长期知识分开管理。
 
-小H负责解决这些问题：
+xiaoh负责解决这些问题：
 
 - 用户只描述目标，不负责替AI拆流程。
-- 小H先核对事实，再给出推荐和需要用户决定的业务结果。
-- 用户确认后，小H自动推进已授权范围内的后续动作。
+- xiaoh先核对事实，再给出推荐和需要用户决定的业务结果。
+- 用户确认后，xiaoh自动推进已授权范围内的后续动作。
 - 专业Agent在明确任务上下文和权限范围内工作。
 - 高风险实现和判断使用独立角色评审。
 - 任务完成立即形成可追溯记录，稳定知识经过候选、评审和晋升后长期保存。
@@ -36,7 +36,7 @@
 
 ### 2.1 设计目标
 
-- 主动协调：小H负责分析、拆解、路由、验收和收口。
+- 主动协调：xiaoh负责分析、拆解、路由、验收和收口。
 - 证据优先：用户的疑问或假设不会自动覆盖代码、配置、数据和运行事实。
 - 建设性异议：发现事实冲突时说明证据、影响和推荐结论，不盲目附和。
 - 最少必要确认：只询问真正改变业务结果、权限、安全边界或交付范围的问题。
@@ -59,7 +59,7 @@
 
 ```mermaid
 flowchart TB
-    U["用户<br/>目标、现象、业务决定"] --> R["小H根线程<br/>理解、核对、推荐、裁决"]
+    U["用户<br/>目标、现象、业务决定"] --> R["xiaoh根线程<br/>理解、核对、推荐、裁决"]
 
     R --> C["公共契约<br/>事实源、意图域、门禁、收口"]
     R --> S["20个Skill<br/>按阶段提供确定工作流"]
@@ -92,7 +92,7 @@ flowchart TB
 | 组件 | 路径 | 职责 |
 | --- | --- | --- |
 | 插件清单 | `plugins/xiaoh/.codex-plugin/plugin.json` | 插件名称、版本、Skill入口和界面信息 |
-| 根协调Skill | `plugins/xiaoh/skills/xiaoh-core/SKILL.md` | 小H交互、协调、结束条件与知识写回逻辑 |
+| 根协调Skill | `plugins/xiaoh/skills/xiaoh-core/SKILL.md` | xiaoh交互、协调、结束条件与知识写回逻辑 |
 | 其他Skill | `plugins/xiaoh/skills/*/SKILL.md` | Workspace、需求、评审、收口、诊断等阶段工作流 |
 | 公共契约 | `plugins/xiaoh/runtime/codex/AGENTS.md` | 所有Agent必须遵守的通用规则 |
 | 专业Agent | `plugins/xiaoh/runtime/codex/agents/*.toml` | 角色职责、推理强度和Sandbox权限 |
@@ -125,7 +125,7 @@ flowchart TB
 
 业务任务先通过Workspace注册表确定项目和系统，再由`xiaoh-project-recall`按当前主题定向读取项目进度、相关任务收口、规范需求基线和已晋升知识。每日摘要只用于定位，不作为唯一权威来源。随后读取当前代码、配置、Spec+RFC、OpenSpec或任务状态，显式记录历史与现状的冲突。
 
-原始证据使用`xiaoh-project-recall/v1` JSON清单保存在任务证据目录；没有受管任务目录时放入小H配置目录的`evidence/recall`。清单绑定任务ID、Workspace、当前操作系统平台、任务关系和具体查询；每个历史来源、已检查索引和当前事实文件都记录内容SHA-256，schema 1.6任务上下文再保存清单绝对路径、SHA-256和完成时间。
+原始证据使用`xiaoh-project-recall/v1` JSON清单保存在任务证据目录；没有受管任务目录时放入xiaoh配置目录的`evidence/recall`。清单绑定任务ID、Workspace、当前操作系统平台、任务关系和具体查询；每个历史来源、已检查索引和当前事实文件都记录内容SHA-256，schema 1.6任务上下文再保存清单绝对路径、SHA-256和完成时间。
 
 Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、当前平台未绑定、空查询、空历史缺少索引检查证据、同一文件通过路径大小写/硬链接/Unicode别名伪装成多类来源、需求基线权威来源缺少稳定确认点ID，以及缺少独立非摘要权威来源的清单。文件身份使用设备号与inode判等，文件哈希采用流式读取，避免路径字符串绕过和大文件校验放大内存占用。这样Obsidian中的推送内容成为后续分析的可验证输入，同时不会被误当成当前实现或执行权限。
 
@@ -133,7 +133,7 @@ Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、
 
 ### 5.1 用户输入分类
 
-小H先把重要用户表达分类为：
+xiaoh先把重要用户表达分类为：
 
 | 类型 | 含义 | 是否改变基线 |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、
 
 ### 5.2 推荐优先
 
-信息不足时，小H不会把整理责任退回给用户，而是：
+信息不足时，xiaoh不会把整理责任退回给用户，而是：
 
 1. 读取任务范围内的代码、配置、文档和历史事实。
 2. 整理目标、约束、风险、未知项和验收结果。
@@ -155,7 +155,7 @@ Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、
 4. 只询问一个真正改变结果的问题。
 5. 用户确认或调整后，自动推进剩余工作。
 
-工程方案存在实质取舍时，小H使用`fit-for-purpose-engineering`同时比较：
+工程方案存在实质取舍时，xiaoh使用`fit-for-purpose-engineering`同时比较：
 
 - 最小改动方案：复用现有结构、短期成本较低，但说明覆盖上限和技术债。
 - 最合适改动方案：按正确领域职责和生命周期设计，说明迁移成本和长期收益。
@@ -164,14 +164,14 @@ Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、
 
 ### 5.3 回合结束判定
 
-小H准备结束一个回合前，必须把下一动作归为：
+xiaoh准备结束一个回合前，必须把下一动作归为：
 
 - `completed`：目标已完成并验证。
 - `user_decision_required`：剩余问题会改变业务结果。
 - `external_blocked`：等待外部系统、人工审批或权限。
-- `agent_owned`：仍有小H可以继续执行的已授权动作。
+- `agent_owned`：仍有xiaoh可以继续执行的已授权动作。
 
-只要存在`agent_owned`动作，小H就不应结束并要求用户发送“继续”。
+只要存在`agent_owned`动作，xiaoh就不应结束并要求用户发送“继续”。
 
 ## 6. 三类意图域
 
@@ -179,11 +179,11 @@ Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、
 
 | 意图域 | 典型对象 | 允许范围 |
 | --- | --- | --- |
-| `global_agent_capability` | 小H、Agent、Skill、Hook、全局上下文 | 全局能力和本地运行时 |
+| `global_agent_capability` | xiaoh、Agent、Skill、Hook、全局上下文 | 全局能力和本地运行时 |
 | `playbook_platform` | Playbook产品本身 | Playbook平台仓库和平台规则 |
 | `business_project` | 客户项目、业务系统、业务仓库 | 具体项目的需求和交付生命周期 |
 
-意图域防止“检查小H能力时顺手修改业务代码”或“修Playbook时把下游业务任务当平台实现”。跨域必须说明变化和影响，并取得明确授权。
+意图域防止“检查xiaoh能力时顺手修改业务代码”或“修Playbook时把下游业务任务当平台实现”。跨域必须说明变化和影响，并取得明确授权。
 
 ## 7. Workspace项目归属
 
@@ -191,7 +191,7 @@ Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、
 
 同一个项目可以包含多个Workspace，一个Workspace也可能在另一台电脑拥有不同绝对路径。仅靠目录名或当前打开的Obsidian页面无法可靠判断项目。
 
-小H使用稳定`workspace_id`保存：
+xiaoh使用稳定`workspace_id`保存：
 
 ```json
 {
@@ -217,7 +217,7 @@ Validator会拒绝跨任务复用、过期或内容漂移、越出配置Vault、
 ### 7.2 解析状态
 
 - `known`：直接复用登记的项目和系统，不再次询问。
-- `unknown`：先只读核对仓库和项目导航，由小H给出推荐，只询问一次。
+- `unknown`：先只读核对仓库和项目导航，由xiaoh给出推荐，只询问一次。
 - `conflict`：一个路径匹配多个归属或用途变化，停止业务写入。
 
 机器可读事实源始终是`~/.xiaoh/config.json`；Obsidian只做可读导航。
@@ -292,7 +292,7 @@ Spec+RFC修订号变化后，旧评审失效。OpenSpec必须形成：
 
 ## 9. 专业Agent体系
 
-小H只作为根线程协调者存在，仓库明确删除或拒绝`agents/xiaoh.toml`。
+xiaoh只作为根线程协调者存在，仓库明确删除或拒绝`agents/xiaoh.toml`。
 
 | Agent | 权限 | 主要职责 |
 | --- | --- | --- |
@@ -347,7 +347,7 @@ schema 1.6任务上下文使用规范JSON的`authority_hash`绑定稳定授权�
 
 ```mermaid
 sequenceDiagram
-    participant R as 小H根线程
+    participant R as xiaoh根线程
     participant P as PreToolUse/prepare
     participant S as SubagentStart
     participant A as 专业Agent
@@ -394,7 +394,7 @@ sequenceDiagram
 
 ## 11. Vault写入门禁
 
-小H只允许向`~/.xiaoh/config.json`中`obsidian_vault`指定的唯一Vault写入。
+xiaoh只允许向`~/.xiaoh/config.json`中`obsidian_vault`指定的唯一Vault写入。
 
 写入前Hook会：
 
@@ -409,7 +409,7 @@ Hook无法安全判断时失败关闭。发现历史误写风险时只报告来�
 
 ## 12. Obsidian信息架构
 
-小H把“现在做什么”和“以后复用什么”分成两个入口。
+xiaoh把“现在做什么”和“以后复用什么”分成两个入口。
 
 ### 12.1 发布的空白Vault结构
 
@@ -460,7 +460,7 @@ development-vault/
 
 ### 12.2 业务项目实例结构
 
-用户确认一个新Workspace的项目和系统归属后，小H在`01-项目`下维护项目实例。推荐结构为：
+用户确认一个新Workspace的项目和系统归属后，xiaoh在`01-项目`下维护项目实例。推荐结构为：
 
 ```text
 01-项目/<project>/
@@ -480,7 +480,7 @@ development-vault/
     └── <knowledge-topic>.md            # 仅在该项目成立的正式知识
 ```
 
-这是一套逻辑约定，不是安装阶段一次性创建所有目录。小H只在实际需要时创建页面，避免生成大量空文件。
+这是一套逻辑约定，不是安装阶段一次性创建所有目录。xiaoh只在实际需要时创建页面，避免生成大量空文件。
 
 一个项目可以包含多个Workspace和多个系统；一个Workspace只能归属一个项目和一个系统。Workspace映射保存在本地配置，项目页只保存可读导航。
 
@@ -498,7 +498,7 @@ development-vault/
 | `项目知识/*.md` | 只在当前项目长期成立的正式结论 | 跨项目通用规则 | 交互式知识晋升后更新 |
 | `02-领域知识/*.md` | 跨项目成立的领域语义和术语 | 单一项目特例 | 交互式知识晋升后更新 |
 | `03-可复用方法/*.md` | 前提、变量、排除项和验证方法 | 无边界的经验总结 | 交互式知识晋升后更新 |
-| `90-个人系统/*.md` | 小H、Agent、偏好、模板和个人治理 | 具体项目事实 | 全局能力验收或人工确认后更新 |
+| `90-个人系统/*.md` | xiaoh、Agent、偏好、模板和个人治理 | 具体项目事实 | 全局能力验收或人工确认后更新 |
 
 重要的去重规则：
 
@@ -519,7 +519,7 @@ development-vault/
 | 全局能力或Playbook平台任务收口 | 写入各自的当日记录 | 不伪造业务项目进度 |
 | 每日成果推送 | 不重写业务资料 | 每天读取前一日已收口结果并推送 |
 | 每周知识评审 | 知识评审报告和候选评审元数据 | 默认暂停，启用后每周执行 |
-| 知识晋升 | 更新唯一正式知识页和候选状态 | 必须由交互式小H核对，不自动晋升 |
+| 知识晋升 | 更新唯一正式知识页和候选状态 | 必须由交互式xiaoh核对，不自动晋升 |
 
 因此，定时任务不是资料归档器。业务基线、任务总结和项目进度都在事件发生时更新；每日任务只负责把已经形成的成果推送给用户。
 
@@ -557,7 +557,7 @@ development-vault/
 
 ### 12.6 幂等与历史保留
 
-为避免重复记录和静默覆盖，小H使用不同稳定键：
+为避免重复记录和静默覆盖，xiaoh使用不同稳定键：
 
 | 对象 | 稳定身份 |
 | --- | --- |
@@ -575,7 +575,7 @@ development-vault/
 ```mermaid
 flowchart LR
     A["未知Workspace"] --> B["只读核对仓库和项目导航"]
-    B --> C["小H推荐project/system"]
+    B --> C["xiaoh推荐project/system"]
     C --> D["用户首次确认"]
     D --> E["注册稳定workspace_id和本机路径"]
     E --> F["建立项目首页与系统首页"]
@@ -607,7 +607,7 @@ flowchart LR
 - 项目知识：仅在一个项目内成立。
 - 领域知识：跨项目成立的业务或技术语义。
 - 可复用方法：带前提、变量、排除项和验证方法的工程做法。
-- 个人系统：小H、Agent协作、偏好、模板和知识管理规则。
+- 个人系统：xiaoh、Agent协作、偏好、模板和知识管理规则。
 
 知识生命周期：
 
@@ -633,7 +633,7 @@ flowchart LR
 | 意图域 | 记录位置 |
 | --- | --- |
 | 业务项目 | 对应项目的`工作记录/YYYY-MM-DD.md` |
-| 小H全局能力 | `07-工作记录/全局能力/YYYY-MM-DD.md` |
+| xiaoh全局能力 | `07-工作记录/全局能力/YYYY-MM-DD.md` |
 | Playbook平台 | `07-工作记录/平台/YYYY-MM-DD.md` |
 
 ### 13.2 每日成果推送
@@ -735,7 +735,7 @@ Doctor检查：
 | `xiaoh-update` | 保留本地配置和知识，并同步运行时版本 |
 | `xiaoh-doctor` | 静态与运行时诊断 |
 
-插件来源前缀例如`xiaoh:spec-rfc-reviewer`只表示Skill来自`xiaoh`插件，不表示创建了一个小H子Agent。
+插件来源前缀例如`xiaoh:spec-rfc-reviewer`只表示Skill来自`xiaoh`插件，不表示创建了一个xiaoh子Agent。
 
 ## 16. 失败关闭与降级行为
 
@@ -745,12 +745,12 @@ Doctor检查：
 | Workspace冲突 | 停止业务副作用 |
 | 项目召回未完成、过期、越界或哈希不符 | 停止需求路由、正式委派和后续业务生命周期动作 |
 | 用户疑问与旧基线冲突 | 保留旧基线，先核对证据 |
-| Spec+RFC评审失败 | 小H吸收问题、修订并重新评审 |
+| Spec+RFC评审失败 | xiaoh吸收问题、修订并重新评审 |
 | OpenSpec一致性失败 | 修订OpenSpec并重新评审 |
 | 委派意图缺失或不匹配 | 子Agent仅可作为只读咨询 |
 | Playbook适配凭证缺失、过期或冲突 | 停止受管业务委派，重新读取当前只读事实 |
-| `auto`且Playbook CLI缺失 | 报告`not_enabled`，小H核心保持`passed` |
-| `enabled`且Playbook CLI缺失或接口不兼容 | 小H核心保持可用，Doctor降级，受管业务委派阻断 |
+| `auto`且Playbook CLI缺失 | 报告`not_enabled`，xiaoh核心保持`passed` |
+| `enabled`且Playbook CLI缺失或接口不兼容 | xiaoh核心保持可用，Doctor降级，受管业务委派阻断 |
 | `disabled`但任务要求Playbook受管委派 | 不探测CLI，直接失败关闭并提示修改本地配置 |
 | Hook未启用或未信任 | 不声称正式委派门禁生效 |
 | Vault配置缺失或路径不安全 | 停止知识写回 |
@@ -761,7 +761,7 @@ Doctor检查：
 
 ## 17. 安全和可信边界
 
-小H的治理信任根包括：
+xiaoh的治理信任根包括：
 
 - 当前登录的操作系统账户。
 - 该账户控制的`CODEX_HOME`。
@@ -770,7 +770,7 @@ Doctor检查：
 
 它可以发现或阻止：
 
-- 同名小H子Agent。
+- 同名xiaoh子Agent。
 - 未授权角色委派。
 - 上下文哈希不一致。
 - 跨会话或跨角色消费意图。
@@ -786,10 +786,10 @@ Doctor检查：
 用户：
 
 ```text
-小H，我们需要调整证书迁移逻辑，先分析现状并给我推荐方案。
+xiaoh，我们需要调整证书迁移逻辑，先分析现状并给我推荐方案。
 ```
 
-小H的实际处理逻辑：
+xiaoh的实际处理逻辑：
 
 1. 判断为`business_project`。
 2. 解析当前Workspace；已登记则自动得到项目和系统。
@@ -816,7 +816,7 @@ Doctor检查：
 - Obsidian是本地知识系统，不是任务执行引擎。
 - Agent进化由真实运行证据触发评审建议，不会自动改变权限和角色。
 - `codebase-memory-mcp`是可选增强；缺失时回退到本地搜索。
-- 业务系统专属能力应形成项目Skill或项目规则，不进入通用小H核心。
+- 业务系统专属能力应形成项目Skill或项目规则，不进入通用xiaoh核心。
 
 新增能力时优先判断应该放在哪里：
 

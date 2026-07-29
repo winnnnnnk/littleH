@@ -3,7 +3,7 @@ name: xiaoh-playbook-adapter
 description: Bind XiaoH business-project delegation to current AI Dev Playbook task facts without modifying Playbook. Use status_review for pre-worker read-only reviews, local_review for independent implementation review, and worker for execution actions.
 ---
 
-# 小H Playbook适配
+# xiaoh Playbook适配
 
 Treat Playbook as the only execution-state authority. Never modify Playbook source, configuration, task state, OpenSpec, Git, MR, or approval state through this Skill except for the separately authorized managed command that produced the worker context.
 

@@ -4027,7 +4027,7 @@ def self_test(report):
         report.error("reserved root declaration self-test failed")
     if declares_reserved_root(Path("other.toml"), 'name = "explorer"'):
         report.error("non-root declaration self-test failed")
-    if normalize_agent_name("xiao_h") != "xiaoh" or normalize_agent_name("小H") != "小h":
+    if normalize_agent_name("xiao_h") != "xiaoh" or normalize_agent_name("\u5c0fH") != "\u5c0fh":
         report.error("reserved agent name normalization self-test failed")
     if path_is_covered(str(SYSTEM_DIR / "../config.toml"), [str(SYSTEM_DIR)]):
         report.error("allowed-path traversal self-test failed")

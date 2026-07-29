@@ -6,7 +6,7 @@
 - `code_quality_reviewer`和`test_integration_verifier`分别绑定`code_review`与`verification`，并校验当前任务状态、member worktree、授权范围和唯一评审对象摘要。
 - 专业Agent继续拒绝`recommended_executor=main_agent`的worker凭证；实现权限与只读评审权限保持分离。
 - 新增单member、root-owned worker与双专业评审组合回归，防止相同版本源码与部署运行时再次产生能力误判。
-- 本次发布只调整小H，不修改Playbook CLI版本。
+- 本次发布只调整xiaoh，不修改Playbook CLI版本。
 
 ## 2.17.1 - 2026-07-28
 
@@ -18,7 +18,7 @@
 
 ## 2.17.0 - 2026-07-28
 
-- 新增面向使用者的[小H说明](docs/xiaoh-guide.md)，直接说明怎么沟通、任务怎么推进、什么时候需要人工决定，以及独立模式、Playbook和Obsidian各自承担什么。
+- 新增面向使用者的[xiaoh说明](docs/xiaoh-guide.md)，直接说明怎么沟通、任务怎么推进、什么时候需要人工决定，以及独立模式、Playbook和Obsidian各自承担什么。
 - 插件内置`xiaoh:humanizer`，写给用户阅读的README、说明、方案、总结和交接材料在交付前执行初稿、AI写作痕迹审查和最终修订。
 - 用户显式点名独立`humanizer`时优先使用指定Skill；换机或独立安装时由插件内置版本提供相同的基础写作门禁。
 - 文风编辑仅处理自然语言表达，不改写代码、命令、机器可读工件、证据和需要精确措辞的契约条款。
@@ -26,7 +26,7 @@
 
 ## 2.16.1 - 2026-07-28
 
-- 将Playbook CLI安装、升级、降级、重装、版本切换和安装源切换固定为用户人工维护边界；小H及专业Agent只做版本、命令路径、包来源和兼容性的只读核对。
+- 将Playbook CLI安装、升级、降级、重装、版本切换和安装源切换固定为用户人工维护边界；xiaoh及专业Agent只做版本、命令路径、包来源和兼容性的只读核对。
 - 明确业务任务中的“继续”或自动推进授权不包含Playbook版本变更；Playbook输出的升级命令只作为人工建议报告。
 - 规则进入可跨电脑部署的公共契约，Doctor同时检查捆绑源码与当前生效`AGENTS.md`是否完整承接。
 - 保持治理约束而不安装命令级机械门禁，用户在Codex外部终端维护Playbook不受影响。
@@ -47,7 +47,7 @@
 - 新增`xiaoh-local-review/v1`确定性清单校验：绑定当前任务上下文、交付模式、干净单仓Git HEAD或真实工件清单摘要、连续评审轮次、角色证据和最终结论；代码或工件变化使旧清单失效。
 - 每轮证据使用`xiaoh-local-review-evidence/v1`反向绑定评审角色、轮次、对象、结论和唯一schema 1.2认证运行记录；跨轮复用、失败gate、未认证报告和多仓漏绑均失败关闭。
 - Validator要求所有`implementation`任务至少配置两个独立评审角色，并在实现任务收口时要求证据目录中存在且仅存在一份当前有效的最终清单。
-- 明确双模式交付：未受管项目由小H本地评审闭环独立完成，Playbook受管项目在本地通过后才进入handoff、MR Ready和远程AI评审。
+- 明确双模式交付：未受管项目由xiaoh本地评审闭环独立完成，Playbook受管项目在本地通过后才进入handoff、MR Ready和远程AI评审。
 - Playbook CLI存在不再影响模式判断；受管任务不可用时失败关闭，未受管任务不因安装CLI而切换。
 - Playbook远程`disabled`、`skipped`和`accepted_without_verdict`固定为例外处置，不等价于质量通过或人工Approval。
 - Playbook 0.0.40-snapshot适配器兼容当前Task Truth状态契约，包括多member的`mixed`聚合事实和`code_view.cleaned`未清理证明，并保留旧`current_state`契约的向后兼容与状态来源重验。
@@ -62,12 +62,12 @@
 - `SubagentStart`在消费一次性委派意图时重新运行完整任务上下文校验，阻断prepare之后发生的召回清单或来源内容漂移；校验进程超时或异常时强制降级为未授权只读。
 - 历史来源、索引和当前事实的SHA-256改为流式计算，降低大文件校验的内存放大风险。
 - macOS与Windows均通过当前Python Hook的真实`prepare → SubagentStart → SubagentStop` CLI链路自检，并覆盖带空格和非ASCII字符的配置、运行时与转录路径。
-- 明确Playbook只补充当前受管任务事实，不替代小H的项目历史召回；没有Playbook时召回门禁仍独立生效。
+- 明确Playbook只补充当前受管任务事实，不替代xiaoh的项目历史召回；没有Playbook时召回门禁仍独立生效。
 - 捆绑Skill数量增加到18个，并更新README、实现设计、Playbook关系和治理文档。
 
 ## 2.13.0 - 2026-07-26
 
-- 小H核心与Playbook适配解耦：没有Playbook的用户仍获得完整核心能力，普通任务不会因本机存在Playbook命令而进入受管流程。
+- xiaoh核心与Playbook适配解耦：没有Playbook的用户仍获得完整核心能力，普通任务不会因本机存在Playbook命令而进入受管流程。
 - 本地配置新增`integrations.playbook`三态：`auto`仅在任务明确受管时激活，`enabled`要求兼容，`disabled`跳过探测并禁止受管委派。
 - Doctor分开报告核心健康和可选集成状态；`auto`模式缺少Playbook显示`not_enabled`且不再造成核心降级，显式`enabled`缺失或不兼容仍显示`degraded`。
 - 安装时把实际本地配置绝对路径绑定到四个Hook命令；使用非默认`--config`时，委派门禁和Vault门禁不再回退读取另一份默认配置。
@@ -77,11 +77,11 @@
 ## 2.12.0 - 2026-07-25
 
 - 新增`xiaoh-playbook-adapter`，只读取Playbook现有worker JSON和完整task status JSON，不修改Playbook源码、配置、任务或Git状态。
-- 区分小H长期`xiaoh_workspace_id`与Playbook当前`task_workspace_id`，并将member、worktree、allowed scope和delegated action绑定到默认15分钟有效的可验证凭证。
+- 区分xiaoh长期`xiaoh_workspace_id`与Playbook当前`task_workspace_id`，并将member、worktree、allowed scope和delegated action绑定到默认15分钟有效的可验证凭证。
 - 正式委派Hook和schema 1.4校验器验证凭证文件、来源哈希、身份、范围、动作和时效；旧受管上下文只能继续只读，不能绕过新门禁。
 - 捕获拒绝超过两分钟、顺序错误、终态或worktree不一致的原始快照；委派准备和SubagentStart均重新读取当前只读task status，所有delegated scope逐项收紧到任务授权范围。
 - 凭证15分钟时效仅用于授权和启动；历史收口按当时Agent启动事实审计，不因正常任务耗时而失效。
-- Doctor探测Playbook CLI版本及只读接口兼容性；不兼容时小H全局能力保持可用，但Playbook受管业务委派失败关闭。
+- Doctor探测Playbook CLI版本及只读接口兼容性；不兼容时xiaoh全局能力保持可用，但Playbook受管业务委派失败关闭。
 - macOS与Windows统一使用同一Python委派Hook，减少双实现语义漂移。
 
 ## 2.11.0 - 2026-07-24
@@ -97,7 +97,7 @@
 ## 2.10.0 - 2026-07-24
 
 - 新增`xiaoh-workspace-routing`，以Workspace作为业务项目和系统的自动识别入口。
-- 未登记Workspace由小H先只读调查、带推荐归属询问一次；确认后持久化，后续不重复询问。
+- 未登记Workspace由xiaoh先只读调查、带推荐归属询问一次；确认后持久化，后续不重复询问。
 - 本地配置新增稳定`workspace_id`、项目、系统和本机绝对路径映射；冲突映射禁止静默覆盖。
 - Setup和Update保留既有Workspace注册，Doctor验证重复归属、无效配置和跨电脑失效路径。
 - 任务收口和项目进度在业务写回前统一复用Workspace归属，避免成果落入错误项目。
@@ -117,7 +117,7 @@
 - 项目、进度、方案、知识、验证、运行手册和工作记录模板统一采用`type/status/health/owner/next_action`属性模型。
 - 更新器通过既有受管模板哈希安全升级旧模板，继续保留无法确认来源的个人修改；个人工作偏好和项目总览只在缺失时初始化。
 - `xiaoh-task-closeout`新增知识候选工作台投影，`xiaoh-project-progress`负责维护项目首页和进度页属性，周评审只更新候选评审状态，不自动提升知识。
-- 既有项目知识页不会由安装器批量改写，需由交互式小H基于真实证据逐页归一化。
+- 既有项目知识页不会由安装器批量改写，需由交互式xiaoh基于真实证据逐页归一化。
 
 ## 2.7.0 - 2026-07-23
 
@@ -138,7 +138,7 @@
 - 新增`xiaoh-daily-progress`和`xiaoh-knowledge-review`，分离每日事实归档与每周知识候选评审。
 - 增加版本化托管任务模板、本机逻辑ID到实际任务ID绑定，以及静态漂移诊断。
 - Setup、Update和Doctor改为通过Codex受支持的定时任务能力协调生命周期，禁止直接修改内部automation TOML。
-- 更新时保留既有托管任务绑定和其他本地配置；自动化不可用或未绑定时降级，不影响小H核心能力。
+- 更新时保留既有托管任务绑定和其他本地配置；自动化不可用或未绑定时降级，不影响xiaoh核心能力。
 - 工作记录增加来源、归档键、实际变更和知识候选字段，并新增知识候选评审模板。
 
 ## 2.5.1 - 2026-07-22
@@ -168,7 +168,7 @@
 - 将评审Skill、证据路径和Spec+RFC修订号写入可验证状态，旧版报告不能通过新修订门禁。
 - 增加`spec_rfc_confirmation`校验动作，评审未通过时不得提交用户确认。
 - 明确插件命名空间只表示Skill来源，不代表同名子Agent。
-- 两道评审默认使用小H插件内置的命名空间Skill，同时兼容已有全局副本。
+- 两道评审默认使用xiaoh插件内置的命名空间Skill，同时兼容已有全局副本。
 
 ## 2.2.0 - 2026-07-21
 
@@ -203,7 +203,7 @@
 
 ## 1.4.0 - 2026-07-21
 
-- 将小H完整拆分为可移植的通用协调能力。
+- 将xiaoh完整拆分为可移植的通用协调能力。
 - 移除客户、项目、仓库、真实证据和本机路径。
 - 增加 macOS/Linux、Windows 安装与隔离验证能力。
 - 支持通过 `CODEX_HOME` 和 `XIAOH_VAULT` 配置目标目录。

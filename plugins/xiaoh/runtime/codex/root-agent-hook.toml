@@ -17,7 +17,7 @@ type = "command"
 command = 'python3 "__CODEX_HOME__/hooks/guard_vault_writes.py" --config "__XIAOH_CONFIG__"'
 command_windows = 'py -3 "__CODEX_HOME__/hooks/guard_vault_writes.py" --config "__XIAOH_CONFIG__"'
 timeout = 10
-statusMessage = "校验小H Obsidian Vault写入路径"
+statusMessage = "校验xiaoh Obsidian Vault写入路径"
 
 [[hooks.SubagentStart]]
 matcher = ".*"

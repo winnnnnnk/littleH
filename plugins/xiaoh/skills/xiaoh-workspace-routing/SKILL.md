@@ -3,7 +3,7 @@ name: xiaoh-workspace-routing
 description: Resolve and persist the project and system ownership of a XiaoH development Workspace. Use before business-project knowledge reads or writes, task closeout, project progress updates, or requirement routing when the current Workspace is new, unknown, moved, copied, or potentially mapped to another project.
 ---
 
-# 小H Workspace归属
+# xiaoh Workspace归属
 
 Use `../../scripts/xiaoh.py`, resolved from this Skill directory.
 

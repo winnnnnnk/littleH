@@ -61,7 +61,7 @@ def runtime_arguments(arguments: list[str]) -> list[str]:
         return result
     index = result.index("--config")
     if index + 1 >= len(result) or not result[index + 1].strip():
-        raise ValueError("--config缺少小H配置路径")
+        raise ValueError("--config缺少xiaoh配置路径")
     os.environ["XIAOH_CONFIG"] = str(Path(result[index + 1]).expanduser().resolve())
     del result[index : index + 2]
     return result
@@ -352,7 +352,7 @@ def handle_subagent_start(payload: dict[str, Any], home: Path) -> dict[str, Any]
         json.JSONDecodeError, subprocess.SubprocessError,
     ) as exc:
         return subagent_start_response(
-            unauthorized_subagent_context(), f"小H委派证明生成失败：{exc}"
+            unauthorized_subagent_context(), f"xiaoh委派证明生成失败：{exc}"
         )
 
 
@@ -758,7 +758,7 @@ def attest_subagent_stop(payload: dict[str, Any], home: Path) -> dict[str, Any] 
                 "decision": "block",
                 "reason": "Your final response is missing the exact xiaoh-delegation-receipt line supplied by SubagentStart.",
             }
-        return {"systemMessage": "小H正式委派回执验证失败；本次运行不得作为专业 Agent 完成证据。"}
+        return {"systemMessage": "xiaoh正式委派回执验证失败；本次运行不得作为专业 Agent 完成证据。"}
     hook_path = (home / "hooks" / "block_reserved_root_agent.py").resolve()
     proof.update({
         "state": "attested",
@@ -799,7 +799,7 @@ def decision(
     name = blocked_name(tool_input)
     if name is not None:
         return deny(
-            f"拒绝创建子 Agent '{name}'：xiaoh/小H 是当前根线程的保留身份，"
+            f"拒绝创建子 Agent '{name}'：xiaoh 是当前根线程的保留身份，"
             "只能由根线程承担，不能注册或创建同名子 Agent。"
         )
 
@@ -991,6 +991,8 @@ def decision(
 def self_test() -> None:
     if decision({"tool_input": {"task_name": "xiao_h"}}, run_validator=False) is None:
         raise SystemExit("reserved-root denial self-test failed")
+    if decision({"tool_input": {"task_name": "\u5c0fH"}}, run_validator=False) is None:
+        raise SystemExit("legacy reserved-root alias denial self-test failed")
     if decision({"tool_input": {"task_name": "review", "message": "missing"}}, run_validator=False) is None:
         raise SystemExit("missing-header denial self-test failed")
     with tempfile.TemporaryDirectory(prefix="xiaoh 路径 with space ") as directory:
@@ -1309,18 +1311,18 @@ def main() -> None:
     except (json.JSONDecodeError, TypeError):
         if arguments == ["--subagent-start"]:
             json.dump(subagent_start_response(
-                unauthorized_subagent_context(), "小H委派Hook输入不是有效JSON。"
+                unauthorized_subagent_context(), "xiaoh委派Hook输入不是有效JSON。"
             ), sys.stdout, ensure_ascii=False)
             return
         if arguments == ["--subagent-stop"]:
-            json.dump({"systemMessage": "小H委派Hook输入不是有效JSON。"}, sys.stdout, ensure_ascii=False)
+            json.dump({"systemMessage": "xiaoh委派Hook输入不是有效JSON。"}, sys.stdout, ensure_ascii=False)
             return
         json.dump(deny("拒绝 Agent 调用：Hook 输入不是有效 JSON。"), sys.stdout, ensure_ascii=False)
         return
     if not isinstance(payload, dict):
         if arguments == ["--subagent-start"]:
             json.dump(subagent_start_response(
-                unauthorized_subagent_context(), "小H委派Hook输入结构无效。"
+                unauthorized_subagent_context(), "xiaoh委派Hook输入结构无效。"
             ), sys.stdout, ensure_ascii=False)
             return
         json.dump(deny("拒绝 Agent 调用：Hook 输入结构无效。"), sys.stdout, ensure_ascii=False)
@@ -1366,7 +1368,7 @@ def main() -> None:
             result = attest_subagent_stop(payload, home)
             json.dump(result or {}, sys.stdout, ensure_ascii=False)
         except (OSError, ValueError, TypeError, KeyError, UnicodeError, json.JSONDecodeError) as exc:
-            json.dump({"systemMessage": f"小H委派回执验证失败：{exc}"}, sys.stdout, ensure_ascii=False)
+            json.dump({"systemMessage": f"xiaoh委派回执验证失败：{exc}"}, sys.stdout, ensure_ascii=False)
         return
     try:
         result = decision(payload)

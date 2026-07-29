@@ -3,7 +3,7 @@ name: xiaoh-knowledge-promotion
 description: "Promote an evidence-backed XiaoH knowledge candidate into exactly one durable Obsidian scope: project knowledge, domain knowledge, reusable method, or personal system. Use after task closeout or knowledge review when a candidate should become formal knowledge, when the user asks to reuse a prior project approach, or when XiaoH must decide whether a lesson is project-specific or cross-project."
 ---
 
-# 小H知识晋升
+# xiaoh知识晋升
 
 Treat this as a `global_agent_capability` knowledge operation. It may write project-specific knowledge inside the configured Vault, but it does not modify business repositories or lifecycle state.
 

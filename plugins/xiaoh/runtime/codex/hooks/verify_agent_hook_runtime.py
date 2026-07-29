@@ -219,16 +219,16 @@ def verify(codex_home: Path, cwd: Path) -> None:
             and (not command_flags or any(flag in hook.get("command", "").casefold() for flag in command_flags))
         ]
         if len(matches) != 1:
-            raise RuntimeError(f"Codex hooks/list 未发现唯一的小H {label} 门禁")
+            raise RuntimeError(f"Codex hooks/list 未发现唯一的xiaoh {label} 门禁")
         hook = matches[0]
         if hook.get("enabled") is not True:
-            raise RuntimeError(f"小H {label} 门禁已被禁用")
+            raise RuntimeError(f"xiaoh {label} 门禁已被禁用")
         if hook.get("trustStatus") != "trusted":
-            raise RuntimeError(f"小H {label} 门禁尚未信任，当前状态：{hook.get('trustStatus')}")
+            raise RuntimeError(f"xiaoh {label} 门禁尚未信任，当前状态：{hook.get('trustStatus')}")
         if not hook.get("currentHash"):
             raise RuntimeError(f"Codex hooks/list 未返回 {label} 当前哈希")
         hashes.append(f"{label}={hook['currentHash']}")
-    print("小H运行时门禁已激活：" + ", ".join(hashes))
+    print("xiaoh运行时门禁已激活：" + ", ".join(hashes))
 
 
 def main() -> None:

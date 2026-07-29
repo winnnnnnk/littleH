@@ -1,4 +1,4 @@
 interface:
-  display_name: "小H Playbook适配"
-  short_description: "读取Playbook受管状态并生成可验证的小H委派凭证"
+  display_name: "xiaoh Playbook适配"
+  short_description: "读取Playbook受管状态并生成可验证的xiaoh委派凭证"
   default_prompt: "Use $xiaoh-playbook-adapter only for an explicitly Playbook-managed task and bind its current worker context before delegation."

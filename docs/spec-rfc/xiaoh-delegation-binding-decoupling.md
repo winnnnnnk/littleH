@@ -1,4 +1,4 @@
-# 小H稳定任务授权与单次执行绑定分离 Spec+RFC
+# xiaoh稳定任务授权与单次执行绑定分离 Spec+RFC
 
 - 状态：Accepted
 - 修订：1
@@ -8,7 +8,7 @@
 
 ## 1. 背景
 
-小H 2.15.0 的任务上下文同时保存长期任务授权、具体 `task_name`、Playbook
+xiaoh 2.15.0 的任务上下文同时保存长期任务授权、具体 `task_name`、Playbook
 短时收据和运行期证据。多轮独立评审要求同一角色启动多个真实 Agent
 会话，而 Codex 协作运行时不允许重复创建相同的子任务名称。刷新
 `task_name` 或 Playbook 收据又会改变完整任务上下文哈希，使前一轮已认证证据
@@ -23,7 +23,7 @@
 1. 任务的稳定授权在多轮评审、Agent 重启和 Playbook 收据刷新之间保持不变。
 2. 每次正式 Agent 启动都获得唯一、短时、一次性的执行绑定。
 3. 独立模式与 Playbook 受管模式共享同一本地评审生命周期。
-4. Playbook 继续独占当前受管任务状态，小H只绑定某一时点的权威事实。
+4. Playbook 继续独占当前受管任务状态，xiaoh只绑定某一时点的权威事实。
 5. 保持身份、角色、动作、范围、Workspace、状态、时效和防重放门禁。
 6. 保留 schema 1.5 历史审计能力，并提供显式迁移路径。
 7. macOS/Linux 的 Python Hook 与 Windows PowerShell Hook 行为一致。
@@ -57,7 +57,7 @@ Playbook 收据字段。
 
 本地评审清单绑定 `authority_hash`；每轮证据绑定各自的执行凭证、Agent 会话、
 运行记录和（受管时）Playbook 收据。职责边界与实际生命周期一致，可独立验证，
-也不会把 Playbook 变成小H核心依赖。
+也不会把 Playbook 变成xiaoh核心依赖。
 
 ## 5. 稳定任务授权
 
@@ -180,11 +180,11 @@ captured_at <= agent_started_at <= expires_at
 
 ## 9. Playbook 边界
 
-- `playbook.managed=false`：完整执行小H独立流程；即使 CLI 已安装也不启用适配。
+- `playbook.managed=false`：完整执行xiaoh独立流程；即使 CLI 已安装也不启用适配。
 - `playbook.managed=true`：每次正式动作都绑定当前适用的 Playbook worker 或
   status-review 收据；缺失、不兼容或状态失效时失败关闭。
 - Playbook 收据进入单次执行绑定，不进入稳定任务上下文。
-- 小H不改变 Playbook task、member、MR、pipeline、Approval、归档或清理状态。
+- xiaoh不改变 Playbook task、member、MR、pipeline、Approval、归档或清理状态。
 - 本地评审通过后，受管模式才允许向 Playbook 交付
   `ready_for_integration=true` 或触发远程评审。
 

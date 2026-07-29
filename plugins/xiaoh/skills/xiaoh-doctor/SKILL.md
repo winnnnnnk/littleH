@@ -1,9 +1,9 @@
 ---
 name: xiaoh-doctor
-description: Diagnose and verify a XiaoH installation, including registered specialist Agents, the reserved root identity, global contract, deployed/plugin version alignment, Hook configuration and trust state, task validator, configured Obsidian Vault, and role catalog. Use when the user asks whether 小H is installed, trusted, active, working, misconfigured, or ready to use.
+description: Diagnose and verify a XiaoH installation, including registered specialist Agents, the reserved root identity, global contract, deployed/plugin version alignment, Hook configuration and trust state, task validator, configured Obsidian Vault, and role catalog. Use when the user asks whether xiaoh is installed, trusted, active, working, misconfigured, or ready to use.
 ---
 
-# 检查小H
+# 检查xiaoh
 
 Use `../../scripts/xiaoh.py`, resolved from this Skill directory.
 

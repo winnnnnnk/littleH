@@ -1,4 +1,4 @@
-# 小H Agent 协作运行协议
+# xiaoh Agent 协作运行协议
 
 本目录把全局 Agent 公共契约中的关键输入和证据格式变成可检查资产。它不替代 Playbook、项目 `AGENTS.md`、OpenSpec 或代码事实源。
 
@@ -8,7 +8,7 @@
 
 ## 文件
 
-- `task-context.template.json`：小H下发给专业 Agent 的任务上下文包模板。
+- `task-context.template.json`：xiaoh下发给专业 Agent 的任务上下文包模板。
 - `run-record.template.json`：一次委派或直接执行的运行证据模板。
 - `routing-cases.json`：代表性任务、最小角色集合和独立评审基线。
 - `agent-stages.json`：每个全局 Agent 当前生命周期阶段。
@@ -32,9 +32,9 @@ python3 __CODEX_HOME__/agent-system/validate.py --evaluate-runs /absolute/path/e
 
 ## 方案确认与持续执行
 
-小H先完成可自主进行的事实核对和技术判断，再把推荐方案、理由、影响、边界和真正需要用户决定的业务结果整理成一个可确认基线。用户确认或给出明确调整后，小H自动推进既定范围内的分析、拆解、专业 Agent 调度、实现、验证、评审、汇总和知识写回，不再要求用户发送“继续”。
+xiaoh先完成可自主进行的事实核对和技术判断，再把推荐方案、理由、影响、边界和真正需要用户决定的业务结果整理成一个可确认基线。用户确认或给出明确调整后，xiaoh自动推进既定范围内的分析、拆解、专业 Agent 调度、实现、验证、评审、汇总和知识写回，不再要求用户发送“继续”。
 
-准备结束回合前，小H必须把状态判为 `completed`、`user_decision_required`、`external_blocked` 或 `agent_owned`。存在 `agent_owned` 下一动作时不得结束；需要跨回合持续的多阶段任务在基线确认后使用线程级 Goal。Goal 只保持目标连续性，不扩大任务范围、写入权限或外部操作授权。
+准备结束回合前，xiaoh必须把状态判为 `completed`、`user_decision_required`、`external_blocked` 或 `agent_owned`。存在 `agent_owned` 下一动作时不得结束；需要跨回合持续的多阶段任务在基线确认后使用线程级 Goal。Goal 只保持目标连续性，不扩大任务范围、写入权限或外部操作授权。
 
 默认检查：
 
@@ -63,7 +63,7 @@ python3 __CODEX_HOME__/agent-system/validate.py --evaluate-runs /absolute/path/e
 
 `routing-cases.json` 是调度基线，不是固定工作流。每个案例先固定 `intent_domain`，再判断角色集合；`required_agents` 是该案例的最小集合，`optional_agents` 必须由当前任务事实触发，未列出的角色会被判定为过度路由。实际执行顺序、实例数量、并行能力和可写 worktree 仍由 Playbook 决定。
 
-小H的路由规则、角色描述或角色结构变化后，应逐个读取案例 prompt，独立给出选择结果，再用 `--routing-case` 校验。不能直接照抄案例答案冒充回归结果。
+xiaoh的路由规则、角色描述或角色结构变化后，应逐个读取案例 prompt，独立给出选择结果，再用 `--routing-case` 校验。不能直接照抄案例答案冒充回归结果。
 
 `xiaoh` 是当前根线程的保留身份，不是自定义 Agent。路由案例的 `root_agent` 记录协调责任；`required_agents`、`optional_agents` 和 `--selected-agents` 只包含实际委派的专业子 Agent。校验器发现 `agents/xiaoh.toml` 或委派列表中的 `xiaoh` 时必须失败。
 
@@ -71,7 +71,7 @@ python3 __CODEX_HOME__/agent-system/validate.py --evaluate-runs /absolute/path/e
 
 ## 进化评估
 
-运行记录中的 `metrics` 保存上下文补充、越界、验证失败、逃逸缺陷和结果采纳情况。`--evaluate-runs` 聚合指定目录中的真实记录；跨 workspace 时可重复传入该参数。显式追加 `--sync-stage-evidence` 只把 `evidence_runs` 和 `last_evaluated_at` 写回 `agent-stages.json`，不会改变阶段。工具根据 `evolution-policy.json` 输出阶段评审建议；阶段变化仍由小H复核并遵守用户确认门禁。
+运行记录中的 `metrics` 保存上下文补充、越界、验证失败、逃逸缺陷和结果采纳情况。`--evaluate-runs` 聚合指定目录中的真实记录；跨 workspace 时可重复传入该参数。显式追加 `--sync-stage-evidence` 只把 `evidence_runs` 和 `last_evaluated_at` 写回 `agent-stages.json`，不会改变阶段。工具根据 `evolution-policy.json` 输出阶段评审建议；阶段变化仍由xiaoh复核并遵守用户确认门禁。
 
 ## 当前边界
 

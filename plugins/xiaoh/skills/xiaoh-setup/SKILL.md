@@ -1,9 +1,9 @@
 ---
 name: xiaoh-setup
-description: Initialize the XiaoH local runtime after installing the Codex plugin. Use when the user says to initialize, install, configure, migrate, or enable 小H on a computer, or when XiaoH Agent files, governance hooks, validator, global contract, or the Obsidian development vault are missing.
+description: Initialize the XiaoH local runtime after installing the Codex plugin. Use when the user says to initialize, install, configure, migrate, or enable xiaoh on a computer, or when XiaoH Agent files, governance hooks, validator, global contract, or the Obsidian development vault are missing.
 ---
 
-# 初始化小H
+# 初始化xiaoh
 
 Use the deterministic plugin script at `../../scripts/xiaoh.py`, resolved from this Skill directory. Do not recreate its copy, merge, backup, or validation logic manually.
 

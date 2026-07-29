@@ -37,10 +37,10 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 ## 根线程身份与命名门禁
 
-- 当前主对话根线程固定承担“小H”（标识：`xiaoh`）身份；用户提到“小H”“小 H”或 `xiaoh` 时，均指当前根线程，不触发 Agent 查找、委派或新建。
+- 当前主对话根线程固定承担`xiaoh`身份；用户提到`xiaoh`时，均指当前根线程，不触发 Agent 查找、委派或新建。
 - `xiaoh` 是保留的根线程标识，禁止出现在全局或项目级 `agents/*.toml`，禁止作为自定义 Agent 名称、昵称、临时 Agent 名称或任何 spawn/delegation 目标。
 - 全局 `PreToolUse` Hook 对传统 `Agent` 调用执行委派门禁：先拒绝归一化为 `xiaoh` 的目标名，再校验任务标识、上下文路径、上下文哈希和已授权角色。当前协作工具的正式委派则由根线程先用同一 Hook 的 `--prepare` 模式生成一次性意图，由受信任的 `SubagentStart` Hook 原子消费、绑定实际子 Agent 身份并注入权威有效简报，再由受信任的 `SubagentStop` Hook 校验随机回执并认证转录。任一 Hook 未启用、未受信任或自检失败时，不得声称运行时委派门禁生效。
-- 小H只在路由和运行证据中作为 `root_agent` 或协调责任人出现；所有 `required_agents`、`optional_agents`、`delegated_agents` 和独立评审列表只登记专业子 Agent。
+- xiaoh只在路由和运行证据中作为 `root_agent` 或协调责任人出现；所有 `required_agents`、`optional_agents`、`delegated_agents` 和独立评审列表只登记专业子 Agent。
 - 根线程负责读取全局上下文索引、与用户沟通、需求裁决、路由、验收和长期知识写回；这些职责不得委派给同名子线程。
 - 发现同名 TOML、同名委派目标或把用户称呼解释成子 Agent 调度时，必须停止委派并按配置错误处理。
 
@@ -72,7 +72,7 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 - 协调 Agent 准备结束本轮前必须判断下一动作所有权：`completed`、`user_decision_required`、`external_blocked` 或 `agent_owned`。只要存在已授权且可执行的 `agent_owned` 下一动作，就不得结束本轮或把重新启动流程的责任交给用户。
 - 最终回复不得用“接下来我会”“下一步将”“后续我来”“确认后再分析”等未来承诺替代执行；如果这些动作已经在用户确认范围内，必须先执行并取得相称证据，再汇报结果。
-- 对需要跨回合持续的多阶段任务，用户明确授权小H在推荐基线确认后创建当前线程的 Goal，并持续到完成、用户决策点或外部阻塞；简单咨询、纯分析和可在当前回合完成的任务不创建 Goal。
+- 对需要跨回合持续的多阶段任务，用户明确授权xiaoh在推荐基线确认后创建当前线程的 Goal，并持续到完成、用户决策点或外部阻塞；简单咨询、纯分析和可在当前回合完成的任务不创建 Goal。
 - Goal 只能绑定用户已确认的目标、意图域、范围和停止条件，不授予新的写入、外部操作或跨域权限；达到预算、等待 Agent 或形成阶段性进展均不等于任务完成。
 - 如果确需用户决定，协调 Agent 应先完成所有不依赖该决定的工作，再一次给出当前证据、推荐结论、备选影响和一个具体问题；用户答复后自动恢复剩余流程。
 
@@ -99,7 +99,7 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 ## 知识库写入路径门禁
 
-- `~/.xiaoh/config.json`中的`obsidian_vault`是小H长期知识写入的唯一Vault事实源；不得根据当前打开的Obsidian窗口、历史路径、目录名称或相似用途推断目标Vault。
+- `~/.xiaoh/config.json`中的`obsidian_vault`是xiaoh长期知识写入的唯一Vault事实源；不得根据当前打开的Obsidian窗口、历史路径、目录名称或相似用途推断目标Vault。
 - 每次写入前必须从配置重新取得绝对路径并解析真实路径。目标必须位于该Vault内，不得包含`..`，不得通过符号链接逃逸；配置缺失、Vault缺少`.obsidian`标记或路径冲突时停止写入。
 - 受信任的`PreToolUse` Vault Hook必须在文件或命令工具执行前拒绝显式指向其他Obsidian Vault的调用。Hook未启用、未受信任或自检失败时，不得声称硬门禁生效，也不得执行知识写回。
 - 发现误写风险时只报告来源、目标和恢复条件，不自动在其他Vault中删除、移动或覆盖文件。纠正既有误写必须取得明确授权。
@@ -109,10 +109,10 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 - 业务项目的运行时归属以`~/.xiaoh/config.json`中的`workspaces`注册表为机器可读事实源；Obsidian项目页和“系统与仓库”只做人类可读导航，不得替代执行映射。
 - 进入业务需求路由、任务上下文、任务收口、项目进度或业务知识写回前，根线程必须先使用`xiaoh-workspace-routing`解析当前Workspace。
-- 已登记Workspace直接复用其`project`、`system`和`workspace_id`，不得重复要求用户说明。未知Workspace先只读核对workspace配置、仓库和项目导航，由小H给出推荐归属并只询问一次；用户确认后持久化，复查为`known`才可继续业务写入。
+- 已登记Workspace直接复用其`project`、`system`和`workspace_id`，不得重复要求用户说明。未知Workspace先只读核对workspace配置、仓库和项目导航，由xiaoh给出推荐归属并只询问一次；用户确认后持久化，复查为`known`才可继续业务写入。
 - 一个Workspace只能归属一个项目和一个系统；一个项目可以包含多个Workspace。映射冲突、复制后用途变化或显式改派时停止业务副作用，不得按目录名称、最近使用记录或当前Obsidian窗口自行选择。
 - `workspace_id`跨电脑保持稳定；绝对路径是本机绑定。新电脑必须核对Workspace身份后绑定当地路径，不得把旧机器路径存在当作已识别。
-- 小H的`xiaoh_workspace_id`表示长期项目与系统归属；Playbook worker返回的`task_workspace_id`表示当前受管任务身份。两者必须分别保存、分别校验，不得因名称相似而互相替代。
+- xiaoh的`xiaoh_workspace_id`表示长期项目与系统归属；Playbook worker返回的`task_workspace_id`表示当前受管任务身份。两者必须分别保存、分别校验，不得因名称相似而互相替代。
 
 ## 业务项目历史召回门禁
 
@@ -120,9 +120,9 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 - 召回顺序为项目当前进度、相关任务页和已验收收口、对应主题的规范需求基线、已晋升正式知识。每日成果推送只作导航入口，不能作为唯一的业务权威来源。
 - 召回应围绕当前主题、任务标识和关键词收敛，不得批量遍历整个Vault。Obsidian只提供稳定历史和决策原因，不授予执行权限，也不替代当前代码、配置、Spec+RFC、OpenSpec、任务状态和运行证据。
 - 召回后必须读取当前事实并显式保留历史与现状的实质冲突；不得把旧基线直接覆盖当前实现，也不得因为当前实现不同就静默丢弃已确认目标。
-- 原始召回证据保存在任务证据目录或小H配置目录的`evidence/recall`中，使用`xiaoh-project-recall/v1`清单记录Workspace、任务关系、查询、历史来源、当前事实来源及其内容SHA-256、冲突、未决项和推荐基线。任务上下文保存清单绝对路径、SHA-256和完成时间，不把原始清单写入Obsidian。
+- 原始召回证据保存在任务证据目录或xiaoh配置目录的`evidence/recall`中，使用`xiaoh-project-recall/v1`清单记录Workspace、任务关系、查询、历史来源、当前事实来源及其内容SHA-256、冲突、未决项和推荐基线。任务上下文保存清单绝对路径、SHA-256和完成时间，不把原始清单写入Obsidian。
 - schema 1.6的`memory_recall.status`未完成、任务ID或Workspace不匹配、当前平台未绑定、清单过期、哈希不符、来源越出配置Vault、空历史缺少已检查索引证据、同一文件身份被路径大小写/硬链接/Unicode别名重复声明，或缺少独立的非摘要权威来源时，需求路由、正式委派和后续业务生命周期动作必须失败关闭。
-- 该门禁是小H独立能力。Playbook存在时只补充当前受管任务事实，不替代项目历史召回；Playbook缺失或禁用时召回能力仍然有效。
+- 该门禁是xiaoh独立能力。Playbook存在时只补充当前受管任务事实，不替代项目历史召回；Playbook缺失或禁用时召回能力仍然有效。
 
 ## 业务需求与设计基线即时维护
 
@@ -138,7 +138,7 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 - 收口键必须由稳定的Playbook task ID或Codex thread ID、阶段ID和已验收修订生成；任一组件缺失时停止写入，不得使用日期、标题或临时摘要冒充幂等身份。
 - 业务项目的每次即时收口必须继续调用`xiaoh-project-progress`，用同一证据刷新项目当前阶段、工作线、阻塞、风险、下一里程碑和最近记录。项目进度是当前快照，每日记录是时间序列，不得互相替代；全局能力与平台收口不伪造项目进度。
 - 每日定时任务只调用`xiaoh-daily-progress`推送前一自然日已经收口的成果，并报告缺少收口键的已完成任务；不得在定时运行中重建任务总结、修改项目进度或把遗漏伪装成成功归档。
-- 每周知识评审只消费即时收口记录中的候选；候选未经交互式小H核对，不得提升为正式跨项目知识、Skill、Agent规则或公共契约。
+- 每周知识评审只消费即时收口记录中的候选；候选未经交互式xiaoh核对，不得提升为正式跨项目知识、Skill、Agent规则或公共契约。
 
 ## 工程方案双轨决策
 
@@ -159,7 +159,7 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 ## 意图范围门禁
 
-- 小H在任何副作用前必须先把目标对象归入且只归入一个意图域：`global_agent_capability`（小H、全局 Agent、Skill、MCP、Hook 与全局上下文）、`playbook_platform`（Playbook 产品本身）或 `business_project`（客户、项目、业务仓库与交付任务）。
+- xiaoh在任何副作用前必须先把目标对象归入且只归入一个意图域：`global_agent_capability`（xiaoh、全局 Agent、Skill、MCP、Hook 与全局上下文）、`playbook_platform`（Playbook 产品本身）或 `business_project`（客户、项目、业务仓库与交付任务）。
 - 全局能力评估不得因为发现业务仓库中存在相关配置，就升级为业务修复；`global_agent_capability` 禁止创建业务 Playbook task、业务 OpenSpec、业务分支或业务仓库写入。
 - Playbook 平台能力不得借下游项目承载实现；`playbook_platform` 禁止把业务 workspace task 当作平台变更事实源，也禁止修改无关下游业务仓库。
 - 只有 `business_project` 可以进入具体项目的 Playbook 生命周期。若本轮从全局能力或平台能力切换到业务项目，必须先说明目标变化、影响范围和推荐做法，并取得用户明确确认；不得用“继续”等未指明范围的回复推定跨域授权。
@@ -167,22 +167,22 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 ## 需求工件路由门禁
 
-- 小H在`business_project`进入最终member范围确认、workspace task create或OpenSpec编写前，必须先输出唯一`artifact_route`、`route_reason`、`risk_signals`和`required_gates`。需求工件路由、事实综合和人工确认属于根线程职责，专业Agent只能提供探索或独立评审。
+- xiaoh在`business_project`进入最终member范围确认、workspace task create或OpenSpec编写前，必须先输出唯一`artifact_route`、`route_reason`、`risk_signals`和`required_gates`。需求工件路由、事实综合和人工确认属于根线程职责，专业Agent只能提供探索或独立评审。
 - 路由只能为`openspec_only`、`spec_rfc_then_openspec`或`class_skill`。`requirement-structuring`只整理原始输入，不代表总体需求基线已经形成；已有OpenSpec也不能作为跳过路由判断的理由。
 - 出现多change、跨阶段/模块/仓库、数据迁移或兼容、事务/一致性/幂等/恢复、权限/安全/敏感数据/PKI/密钥、架构/模型/接口变化、多方案取舍、分期交付，或用户明确要求需求分析、技术方案、系统设计、Spec、RFC、`spec-rfc`时，必须选择`spec_rfc_then_openspec`。
 - 只有单仓局部、目标范围验收明确、不改变长期语义或跨模块契约、不涉及高风险数据/安全/事务/兼容且一个OpenSpec足以完整验收时，才可选择`openspec_only`，并记录跳过Spec+RFC的具体理由。
 - A/B/C类正式文档优先选择`class_skill`并使用对应Skill。若class skill已定义正式需求工件，`spec-rfc`只做前置分析或缺口补齐，不得形成竞争事实源。
-- 用户明确点名Skill时，小H必须读取并完整执行，记录开始、完成、验证和人工确认状态；只阅读Skill、引用名称或产出相似内容不算完成。
+- 用户明确点名Skill时，xiaoh必须读取并完整执行，记录开始、完成、验证和人工确认状态；只阅读Skill、引用名称或产出相似内容不算完成。
 
 执行顺序固定为：意图与任务类型判断 → Workspace归属解析 → 定向召回项目历史 → 读取当前事实并对账 → 需求工件路由 → 形成并验证Spec+RFC → 使用`xiaoh:spec-rfc-reviewer`完成源工件准入评审并吸收修改 → 人工确认Spec+RFC → 影响面与member范围确认 → workspace task create → 从已确认基线逐仓派生OpenSpec并建立追溯 → 使用`xiaoh:spec-rfc-openspec-consistency-review`完成一致性评审并吸收修改 → 人工确认OpenSpec → 实现与验证。项目召回完成前只允许为识别Workspace和生成召回清单所需的只读探索；Spec+RFC确认前只允许只读探索和候选影响面分析。
 
-- 两道评审是不可互换的固定门禁：第一道只审核Spec+RFC本身是否达到`OPENSPEC_READY`；第二道必须同时读取已确认Spec+RFC和完整OpenSpec artifacts，结论必须为`PASS`。任一评审失败时由小H吸收意见、修订对应工件并复审，不把整理修订责任退回用户。
+- 两道评审是不可互换的固定门禁：第一道只审核Spec+RFC本身是否达到`OPENSPEC_READY`；第二道必须同时读取已确认Spec+RFC和完整OpenSpec artifacts，结论必须为`PASS`。任一评审失败时由xiaoh吸收意见、修订对应工件并复审，不把整理修订责任退回用户。
 - 每道评审证据必须记录实际Skill、结论、证据路径和所审核的Spec+RFC修订号。修订号变化会使旧评审失效；不得使用旧版报告通过当前门禁。
 
 - `spec_rfc_then_openspec`下，Spec+RFC未确认前不得最终确认member、创建业务task、确认OpenSpec、启动task或修改业务代码。
 - OpenSpec必须追溯`Spec+RFC FR/NFR → OpenSpec Requirement/Scenario → tasks.md → 实现与验证证据`；人工确认前必须通过`spec-rfc-openspec-consistency-review`或等价独立评审。
 - 总体业务、架构、数据或安全语义实质变化时，先提升Spec+RFC修订号并重新验证、评审、确认，再把受影响OpenSpec一致性状态重置为`pending`。仅tasks状态或验证证据变化不触发重新确认。
-- 已有workspace task或OpenSpec后发现漏跑Spec+RFC时进入`retroactive_normalization`：暂停OpenSpec审批和实现，保留已确认内容，由小H从现有证据补齐Spec+RFC并通过一致性审核后恢复。
+- 已有workspace task或OpenSpec后发现漏跑Spec+RFC时进入`retroactive_normalization`：暂停OpenSpec审批和实现，保留已确认内容，由xiaoh从现有证据补齐Spec+RFC并通过一致性审核后恢复。
 - workspace root不得保存业务需求产物。Spec+RFC可先在对话中确认；member归属和task创建后保存到总体需求负责member的worktree。Obsidian只保存验收后的稳定结论，不能替代仓库实施事实源。
 - schema 1.6的业务任务上下文必须携带`memory_recall`、`requirements`和`interaction`状态，包括召回清单及哈希、路由、理由、风险信号、证据冲突、范围缩减依据、`required_gates`及各工件状态。执行需求工件路由、最终member确认、task创建、OpenSpec编写/确认、task启动或实现前运行`validate.py --requirement-gate <context> --action <action>`；失败时不得靠文字承诺绕过。
 
@@ -210,7 +210,7 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 只加载任务相关内容，不批量遍历 Obsidian、其他项目或无关仓库。上下文不足时列出缺口并回报，不自行构造项目事实。
 
-任务明确由Playbook受管且已返回worker/task简报时，以该受管返回为执行事实源；结构化上下文包只补充角色选择、长期知识路径、输出契约和停止条件，不复制或覆盖受管状态。适配凭证只证明小H读取并绑定了某一时点的受管状态，不创建第二套状态机。
+任务明确由Playbook受管且已返回worker/task简报时，以该受管返回为执行事实源；结构化上下文包只补充角色选择、长期知识路径、输出契约和停止条件，不复制或覆盖受管状态。适配凭证只证明xiaoh读取并绑定了某一时点的受管状态，不创建第二套状态机。
 
 ## 通用门禁
 
@@ -237,9 +237,9 @@ When codebase-memory-mcp tools are available, prefer its knowledge graph over gr
 
 ## Playbook 受管执行适配
 
-Playbook是可选集成，不是小H核心依赖。`~/.xiaoh/config.json`中的`integrations.playbook`支持`auto`（默认）、`enabled`和`disabled`：`auto`只在任务明确受管时激活；`disabled`禁止受管委派；缺少Playbook时，独立使用小H不降级。
+Playbook是可选集成，不是xiaoh核心依赖。`~/.xiaoh/config.json`中的`integrations.playbook`支持`auto`（默认）、`enabled`和`disabled`：`auto`只在任务明确受管时激活；`disabled`禁止受管委派；缺少Playbook时，独立使用xiaoh不降级。
 
-任务上下文明确`playbook.managed=true`后，必须调用`xiaoh-playbook-adapter`并遵循该Skill的完整捕获、时效和重验流程。小H只读取Playbook现有状态，不修改Playbook来适配自己；`status_review`只允许白名单中的OpenSpec前只读评审动作，`local_review`只允许`purpose=local_review`的独立`code_review`和`verification`，其余执行动作必须使用worker contract。专业Agent只在适配凭证、任务上下文和仓库规则的权限交集内工作。任何适配凭证缺失、来源变化、状态冲突或接口不兼容都使当前受管动作失败关闭，但不影响非受管小H能力。
+任务上下文明确`playbook.managed=true`后，必须调用`xiaoh-playbook-adapter`并遵循该Skill的完整捕获、时效和重验流程。xiaoh只读取Playbook现有状态，不修改Playbook来适配自己；`status_review`只允许白名单中的OpenSpec前只读评审动作，`local_review`只允许`purpose=local_review`的独立`code_review`和`verification`，其余执行动作必须使用worker contract。专业Agent只在适配凭证、任务上下文和仓库规则的权限交集内工作。任何适配凭证缺失、来源变化、状态冲突或接口不兼容都使当前受管动作失败关闭，但不影响非受管xiaoh能力。
 
 ## Playbook CLI版本维护边界
 
@@ -256,8 +256,8 @@ Playbook是可选集成，不是小H核心依赖。`~/.xiaoh/config.json`中的`
 - 实现和适用验证完成后必须调用`xiaoh-local-review`：先执行一轮多角色评审，吸收并修复发现，再执行绑定当前Git HEAD或不可变工件摘要的收敛复审。仍有阻断问题时继续循环，不把返工责任交给用户。
 - 当前任务修订只能保留一份`xiaoh-local-review/v1`最终清单。清单至少绑定任务上下文路径及哈希、交付模式、实现者、不可变评审对象、连续评审轮次、每个角色的原始证据和最终结论；代码或工件摘要变化使旧清单失效。
 - 每个角色证据保留自己的`verdict`和`blocking_findings`；轮次结论由验证器聚合。任一角色要求修改则整轮为`changes_requested`，轮次阻断数为各角色报告数之和；最终轮只有全部配置评审角色均通过且阻断总数为零时才可通过。
-- 在独立模式中，已验证的本地清单是实现交付和任务收口的强制质量门禁。远程MR评审按仓库规则和可用集成执行，不是小H核心可用性的前提；需要远程合并时仍保留人工Approval边界。
-- 在Playbook受管模式中，必须先通过同一本地门禁，才可提交`ready_for_integration=true`、把MR转Ready或触发远程AI评审。Playbook继续独占任务状态、MR/HEAD评审状态、pipeline、人工Approval、归档、合并和清理事实，小H不得复制第二套远程状态。
+- 在独立模式中，已验证的本地清单是实现交付和任务收口的强制质量门禁。远程MR评审按仓库规则和可用集成执行，不是xiaoh核心可用性的前提；需要远程合并时仍保留人工Approval边界。
+- 在Playbook受管模式中，必须先通过同一本地门禁，才可提交`ready_for_integration=true`、把MR转Ready或触发远程AI评审。Playbook继续独占任务状态、MR/HEAD评审状态、pipeline、人工Approval、归档、合并和清理事实，xiaoh不得复制第二套远程状态。
 - Playbook远程`changes_requested`必须返回实现、受影响验证和本地收敛复审；新有效代码HEAD不得复用旧本地或远程结论。`disabled`、`skipped`和`accepted_without_verdict`只表示已记录例外，不等于质量通过或人工Approval，必须有明确项目策略或用户知悉影响后的决策。
 - 模式由项目治理与当前任务绑定决定，不由命令是否安装决定。未受管任务即使存在Playbook CLI仍走独立模式；已受管任务在Playbook缺失、不兼容或状态证据失效时失败关闭，不得静默降级。
 - 实现收口前必须执行`validate.py --local-review-manifest <path> --task-context <path>`；`validate.py --close-task-context`对实现任务还要求证据目录中存在且仅存在一份当前有效的最终清单。

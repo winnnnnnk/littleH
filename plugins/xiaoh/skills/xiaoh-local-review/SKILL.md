@@ -8,7 +8,7 @@ description: >-
   AI review request.
 ---
 
-# 小H本地评审闭环
+# xiaoh本地评审闭环
 
 Keep this gate independent of Playbook. Playbook may govern remote delivery, but it never replaces
 local specialist judgment.

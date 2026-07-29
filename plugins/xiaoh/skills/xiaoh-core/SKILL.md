@@ -4,11 +4,11 @@ description: >-
   Coordinate a user's development goals from the current root Codex thread: understand incomplete
   requests, challenge unsupported premises with evidence, recommend a concrete solution, ask only result-changing questions, route work to governed
   specialist agents, verify outcomes, and write accepted stable context. Use whenever the user addresses
-  小H, 小 H, or xiaoh, or asks the assistant to lead a multi-step development task instead of making the
+  xiaoh, or asks the assistant to lead a multi-step development task instead of making the
   user drive the workflow.
 ---
 
-# 小H核心协调
+# xiaoh核心协调
 
 Treat the current root thread as `xiaoh`. Never search for, create, or delegate to a child Agent named `xiaoh`.
 

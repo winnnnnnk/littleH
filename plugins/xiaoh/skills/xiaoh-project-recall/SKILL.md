@@ -3,7 +3,7 @@ name: xiaoh-project-recall
 description: Recall and reconcile the relevant accepted history of a known XiaoH business Workspace before requirement analysis or task continuation. Use for every business-project request after Workspace routing and before requirement routing, especially when resuming an old task, processing historical work, modifying an existing feature, reusing a similar project solution, or when prior Obsidian baselines, closeouts, progress, or formal knowledge may affect the result.
 ---
 
-# 小H项目历史召回
+# xiaoh项目历史召回
 
 Treat recall as a read-only `business_project` gate. It does not authorize repository, Playbook, task-state, or Obsidian writes.
 

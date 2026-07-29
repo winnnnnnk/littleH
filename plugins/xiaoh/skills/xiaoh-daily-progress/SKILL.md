@@ -3,7 +3,7 @@ name: xiaoh-daily-progress
 description: Push a concise daily achievement digest from results already closed into XiaoH's configured Obsidian Vault. Use for XiaoH's managed daily scheduled task, a manual daily achievement push, or checking which completed tasks lack immediate closeout; never use it as a delayed substitute for task or project summarization.
 ---
 
-# 小H每日成果推送
+# xiaoh每日成果推送
 
 Treat this as a `global_agent_capability` reporting operation. It publishes already-closed results; it does not perform task closeout or maintain project progress.
 

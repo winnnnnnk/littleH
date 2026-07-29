@@ -1,9 +1,9 @@
 ---
 name: xiaoh-update
-description: Synchronize an installed XiaoH runtime with the currently installed plugin version while preserving local configuration and knowledge. Use after upgrading the xiaoh Codex plugin, when setup files or role definitions changed, or when the user asks to update, upgrade, repair, or resync 小H.
+description: Synchronize an installed XiaoH runtime with the currently installed plugin version while preserving local configuration and knowledge. Use after upgrading the xiaoh Codex plugin, when setup files or role definitions changed, or when the user asks to update, upgrade, repair, or resync xiaoh.
 ---
 
-# 更新小H
+# 更新xiaoh
 
 Use `../../scripts/xiaoh.py`, resolved from this Skill directory.
 

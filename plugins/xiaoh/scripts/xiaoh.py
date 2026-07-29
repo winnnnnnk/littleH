@@ -705,11 +705,11 @@ def installed_xiaoh_plugin() -> tuple[dict | None, str | None]:
         if item.get("pluginId") == "xiaoh@xiaoh" and item.get("enabled")
     ]
     if len(matches) != 1:
-        return None, f"无法唯一识别已启用的小H插件: {len(matches)}"
+        return None, f"无法唯一识别已启用的xiaoh插件: {len(matches)}"
     item = matches[0]
     version = item.get("version")
     if not isinstance(version, str) or not version:
-        return None, "已启用的小H插件缺少版本"
+        return None, "已启用的xiaoh插件缺少版本"
     return {
         "plugin_id": item["pluginId"],
         "version": version,
@@ -809,7 +809,7 @@ def playbook_adapter_report(
             "status": "missing",
             "mode": mode,
             "version": None,
-            "errors": [f"缺少小H Playbook适配器: {adapter}"],
+            "errors": [f"缺少xiaoh Playbook适配器: {adapter}"],
         }
     if mode == "disabled":
         return {
@@ -1206,7 +1206,7 @@ def doctor(
         local = load_json(config_path)
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         config_error = exc
-        errors.append(f"小H本地配置无效: {config_path}: {exc}")
+        errors.append(f"xiaoh本地配置无效: {config_path}: {exc}")
     try:
         playbook_adapter = playbook_adapter_report(local)
     except ValueError as exc:
@@ -1216,7 +1216,7 @@ def doctor(
             "version": None,
             "errors": [str(exc)],
         }
-        errors.append(f"小H集成配置无效: {exc}")
+        errors.append(f"xiaoh集成配置无效: {exc}")
     if (
         playbook_adapter.get("mode") == "enabled"
         and playbook_adapter.get("status") != "compatible"
@@ -1235,7 +1235,7 @@ def doctor(
         warnings.append(f"无法验证已启用插件版本: {active_plugin_error}")
     elif active_plugin["version"].partition("+codex.")[0] != plugin_version.partition("+codex.")[0]:
         errors.append(
-            f"小H已启用插件版本漂移: 当前 {active_plugin['version']}，检查器 {plugin_version}"
+            f"xiaoh已启用插件版本漂移: 当前 {active_plugin['version']}，检查器 {plugin_version}"
         )
     loaded_skill_version = None
     if active_skill_root is None:
@@ -1262,12 +1262,12 @@ def doctor(
             if not isinstance(installed_version, str):
                 raise ValueError("installed_version必须是字符串")
             if configured_vault != vault:
-                errors.append(f"Vault参数与小H配置不一致: {vault} != {configured_vault}")
+                errors.append(f"Vault参数与xiaoh配置不一致: {vault} != {configured_vault}")
             if installed_version.partition("+codex.")[0] != plugin_version.partition("+codex.")[0]:
-                errors.append(f"小H运行时版本漂移: 已部署 {installed_version}，当前插件 {plugin_version}")
+                errors.append(f"xiaoh运行时版本漂移: 已部署 {installed_version}，当前插件 {plugin_version}")
         except (KeyError, TypeError, ValueError) as exc:
             installed_version = None
-            errors.append(f"小H本地配置无效: {config_path}: {exc}")
+            errors.append(f"xiaoh本地配置无效: {config_path}: {exc}")
     else:
         installed_version = None
     automations = automation_report(local, codex)
@@ -1292,7 +1292,7 @@ def doctor(
     override = codex / "AGENTS.override.md"
     active_agents = override if override.exists() and override.read_text(encoding="utf-8").strip() else codex / "AGENTS.md"
     if not active_agents.exists() or "<!-- global-agent-common-contract:start -->" not in active_agents.read_text(encoding="utf-8"):
-        errors.append("生效的 AGENTS 文件缺少小H公共契约")
+        errors.append("生效的 AGENTS 文件缺少xiaoh公共契约")
     playbook_version_policy = playbook_version_policy_report(active_agents)
     errors.extend(playbook_version_policy["errors"])
     codex_config_path = codex / "config.toml"
@@ -1357,7 +1357,7 @@ def install(args: argparse.Namespace, mode: str) -> dict:
             "operation": mode,
             "codex_home": str(codex),
             "obsidian_vault": str(vault),
-            "errors": [f"小H本地配置无效，未执行安装或更新: {config_path}: {exc}"],
+            "errors": [f"xiaoh本地配置无效，未执行安装或更新: {config_path}: {exc}"],
         }
     if workspace_registry["errors"]:
         return {
@@ -1468,7 +1468,7 @@ def emit(result: dict, as_json: bool, allow_degraded: bool = False) -> int:
             print("重启 Codex，在 /hooks 中审核并信任四个 XiaoH Hook，然后运行 doctor --runtime。")
         elif result["status"] == "degraded" and result.get("operation"):
             print(
-                "小H核心运行时已部署，但初始化尚未完成；请在新Codex任务中运行"
+                "xiaoh核心运行时已部署，但初始化尚未完成；请在新Codex任务中运行"
                 " $xiaoh:xiaoh-setup 或 $xiaoh:xiaoh-update 完成托管任务校准。"
             )
     return 0 if result["status"] == "passed" or (allow_degraded and result["status"] == "degraded") else 1

@@ -3,7 +3,7 @@ name: xiaoh-project-progress
 description: Maintain an evidence-backed current project progress snapshot in XiaoH's configured Obsidian Vault. Use after a task or milestone closeout, when project status changes, when a project dashboard is missing or stale, or when the user asks what is completed, active, blocked, risky, and next for a project.
 ---
 
-# 小H项目进度维护
+# xiaoh项目进度维护
 
 Maintain `01-项目/<project>/项目进度.md` as the current-state view. Daily records remain the chronological history.
 

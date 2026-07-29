@@ -3,7 +3,7 @@ name: xiaoh-task-closeout
 description: Immediately close an accepted XiaoH task or stable milestone into the configured Obsidian Vault. Use when implementation, analysis, delivery, troubleshooting, documentation, global capability work, platform work, or a meaningful project stage has completed and its result, reasons, verification, risks, next action, and reusable knowledge must be recorded before the root thread finishes.
 ---
 
-# 小H任务即时收口
+# xiaoh任务即时收口
 
 Treat this as part of the current task, not as a scheduled recap. Run it after outcome verification and before the root thread declares the task or milestone complete.
 

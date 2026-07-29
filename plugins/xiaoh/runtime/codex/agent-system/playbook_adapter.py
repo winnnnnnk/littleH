@@ -1158,7 +1158,7 @@ def playbook_probe(
         if not checks[name]["supported"] and (
             name != "worker_start" or require_worker
         ):
-            errors.append(f"Playbook {name}能力不满足小H适配要求")
+            errors.append(f"Playbook {name}能力不满足xiaoh适配要求")
     version_output = subprocess.run(
         [executable, "--version"],
         capture_output=True,

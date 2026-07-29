@@ -3,7 +3,7 @@ name: xiaoh-requirement-baseline
 description: Maintain one evidence-backed, continuously evolving business requirement and design baseline per topic in XiaoH's configured Obsidian Vault. Use immediately after the user confirms, corrects, rejects, or supersedes a material business rule or result-changing design rationale; when accepted evidence resolves a previously open business question; or when the user asks to sync confirmed business discussion, requirement points, or design logic to Obsidian.
 ---
 
-# 小H业务需求与设计基线
+# xiaoh业务需求与设计基线
 
 Treat this as a `business_project` knowledge write. It does not authorize repository changes, task lifecycle transitions, or new business decisions.
 

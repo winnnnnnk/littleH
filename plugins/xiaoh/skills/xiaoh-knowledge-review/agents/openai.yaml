@@ -1,4 +1,4 @@
 interface:
-  display_name: "小H每周知识评审"
+  display_name: "xiaoh每周知识评审"
   short_description: "Review weekly knowledge candidates for safe cross-project reuse"
   default_prompt: "Use $xiaoh-knowledge-review to review this week’s reusable knowledge candidates."

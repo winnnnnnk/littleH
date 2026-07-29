@@ -1,4 +1,4 @@
 interface:
-  display_name: "小H本地评审闭环"
+  display_name: "xiaoh本地评审闭环"
   short_description: "在交付前执行多角色评审、修复收敛并绑定当前代码证据"
   default_prompt: "Use $xiaoh-local-review to converge local multi-role review before delivery."

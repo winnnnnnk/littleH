@@ -1,4 +1,4 @@
 interface:
-  display_name: "小H项目进度维护"
+  display_name: "xiaoh项目进度维护"
   short_description: "依据已验收任务结果持续刷新项目当前进度、风险与下一步快照"
   default_prompt: "Use $xiaoh-project-progress to refresh the project progress snapshot from accepted task results."

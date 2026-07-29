@@ -150,6 +150,9 @@ class CompanionTests(unittest.TestCase):
         self.assertIn("xiaoh-project-recall", actual_skills)
         self.assertIn("xiaoh-local-review", actual_skills)
         self.assertIn("humanizer", actual_skills)
+        self.assertEqual("xiaoh", plugin["interface"]["displayName"])
+        self.assertTrue(plugin["interface"]["longDescription"].startswith("xiaoh"))
+        self.assertTrue(plugin["interface"]["defaultPrompt"].startswith("xiaoh"))
 
     def test_user_facing_documentation_uses_bundled_humanizer_policy(self):
         root = Path(__file__).parents[1]
@@ -162,7 +165,7 @@ class CompanionTests(unittest.TestCase):
             root / "plugins/xiaoh/runtime/codex/AGENTS.md"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("[认识小H](docs/xiaoh-guide.md)", readme)
+        self.assertIn("[认识xiaoh](docs/xiaoh-guide.md)", readme)
         self.assertIn("独立`humanizer`", guide)
         self.assertIn("`xiaoh:humanizer`", guide)
         self.assertIn("同一份文档不会连续调用两个版本", guide)

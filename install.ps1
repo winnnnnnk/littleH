@@ -10,13 +10,13 @@ if (-not (Get-Command codex -ErrorAction SilentlyContinue)) { throw "缺少必�
 New-Item -ItemType Directory -Path $CodexTarget -Force | Out-Null
 
 & codex plugin marketplace add $Root --json
-if ($LASTEXITCODE -ne 0) { throw "添加小H Marketplace失败" }
+if ($LASTEXITCODE -ne 0) { throw "添加xiaoh Marketplace失败" }
 & codex plugin add xiaoh@xiaoh --json
-if ($LASTEXITCODE -ne 0) { throw "安装小H Plugin失败" }
+if ($LASTEXITCODE -ne 0) { throw "安装xiaoh Plugin失败" }
 
 $py = Get-Command py -ErrorAction SilentlyContinue
 $python = Get-Command python -ErrorAction SilentlyContinue
 if ($py) { & $py.Source -3 $Script setup --allow-degraded }
 elseif ($python) { & $python.Source $Script setup --allow-degraded }
 else { throw "缺少Python 3" }
-if ($LASTEXITCODE -ne 0) { throw "初始化小H运行环境失败" }
+if ($LASTEXITCODE -ne 0) { throw "初始化xiaoh运行环境失败" }

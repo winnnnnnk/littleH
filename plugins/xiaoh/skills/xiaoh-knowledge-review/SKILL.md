@@ -3,7 +3,7 @@ name: xiaoh-knowledge-review
 description: Review XiaoH daily-record knowledge candidates for reuse without silently promoting them. Use for XiaoH's managed weekly scheduled task, a manual weekly knowledge review, candidate deduplication, or deciding which project lessons deserve later human-reviewed promotion.
 ---
 
-# 小H每周知识候选评审
+# xiaoh每周知识候选评审
 
 Treat this as a `global_agent_capability` operation. It reviews accepted daily records; it does not inspect or modify business repositories.
 

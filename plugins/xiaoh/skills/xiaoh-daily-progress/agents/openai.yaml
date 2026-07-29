@@ -1,4 +1,4 @@
 interface:
-  display_name: "小H每日成果推送"
+  display_name: "xiaoh每日成果推送"
   short_description: "Push already-closed daily achievements and report missing closeouts"
   default_prompt: "Use $xiaoh-daily-progress to push yesterday’s already-closed project achievements."
