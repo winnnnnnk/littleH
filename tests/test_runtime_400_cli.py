@@ -152,6 +152,7 @@ class Runtime400CliTests(unittest.TestCase):
                 env=environment,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
             )
 
             self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
@@ -166,6 +167,7 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
 

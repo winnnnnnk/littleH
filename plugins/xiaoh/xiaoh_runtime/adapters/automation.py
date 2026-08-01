@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
+import importlib
 import re
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Mapping, Optional, Sequence
 
 from ..ports.protocols import FileSystemPort
 
+tomllib: Optional[ModuleType]
 try:
-    import tomllib
+    tomllib = importlib.import_module("tomllib")
 except ModuleNotFoundError:
     tomllib = None
 

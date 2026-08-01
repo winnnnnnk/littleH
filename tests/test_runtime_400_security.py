@@ -246,6 +246,7 @@ class Runtime400VaultSecurityTests(unittest.TestCase):
                 [sys.executable, str(HOOKS / script), "--self-test"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 check=False,
                 env=environment,
             )
@@ -261,6 +262,7 @@ class Runtime400VaultSecurityTests(unittest.TestCase):
             input="[]",
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
         )
 
