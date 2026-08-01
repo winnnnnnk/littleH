@@ -2,6 +2,7 @@
 """Thin Hook and CLI entrypoint for root-task scope and Vault write guards."""
 
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config")
     parser.add_argument("--prepare", action="store_true")
+    parser.add_argument("--bootstrap", action="store_true")
+    parser.add_argument("--task-context-base64")
     parser.add_argument("--attest", action="store_true")
     parser.add_argument("--run-verification")
     parser.add_argument("--task-context")
@@ -41,6 +44,18 @@ def main():
         if not args.task_context:
             parser.error("--prepare requires --task-context")
         print(json.dumps(gate.prepare(args.task_context, args.session_id), ensure_ascii=False))
+        return 0
+    if args.bootstrap:
+        if not args.task_context_base64 or not args.session_id:
+            parser.error("--bootstrap requires --task-context-base64 and --session-id")
+        try:
+            decoded = base64.b64decode(
+                args.task_context_base64.encode("ascii"), validate=True
+            )
+            context = json.loads(decoded.decode("utf-8"))
+        except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
+            parser.error("invalid --task-context-base64: {}".format(exc))
+        print(json.dumps(gate.bootstrap(context, args.session_id), ensure_ascii=False))
         return 0
     if args.attest:
         if not args.binding or not args.binding_hash:

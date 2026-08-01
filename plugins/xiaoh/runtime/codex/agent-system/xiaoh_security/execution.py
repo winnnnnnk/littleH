@@ -1,13 +1,16 @@
 """Short-lived root execution binding and repository scope attestation."""
 
 from datetime import datetime, timedelta, timezone
+import base64
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import subprocess
+import sys
 
 from xiaoh_validator.diagnostics import Report
 from xiaoh_validator.schemas import (
@@ -25,9 +28,8 @@ PATCH_PATH_RE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File:\s*(.+)$", re.M)
 WRITE_TARGET_RE = re.compile(
     r"(?:^|[;&|]\s*)(?:touch|mkdir|rm)\s+(?:-[^\s]+\s+)*([^\s;&|]+)|(?:>>?|2>>?)\s*([^\s;&|]+)"
 )
-READ_ONLY_COMMAND_RE = re.compile(
-    r"^(?:pwd|ls(?:\s|$)|rg(?:\s|$)|sed(?:\s|$)|git\s+(?:status|diff|log|show|branch\s+--show-current)(?:\s|$))"
-)
+READ_ONLY_COMMANDS = {"pwd", "ls", "rg", "sed"}
+READ_ONLY_GIT_COMMANDS = {"status", "diff", "log", "show"}
 
 
 def _hash_bytes(value):
@@ -136,6 +138,52 @@ class RootExecutionGate:
     def proof_directory(self):
         return self.codex_home / "agent-system/root-scope-proofs"
 
+    @property
+    def context_directory(self):
+        return self.codex_home / "agent-system/root-task-contexts"
+
+    def bootstrap(self, context, session_id=None):
+        """Atomically persist a validated context and its first root binding."""
+        session = session_id or os.environ.get("CODEX_THREAD_ID")
+        if not isinstance(session, str) or not session.strip():
+            raise ValueError("root execution requires a session id")
+        if not isinstance(context, dict) or context.get("schema_version") != "1.6":
+            raise ValueError("root execution requires task context schema 1.6")
+        self._validate_context(context)
+        context_path = self.context_directory / (self._session_key(session) + ".json")
+        binding_path = self.binding_directory / (self._session_key(session) + ".json")
+        lock_path = self.binding_directory / ".bootstrap.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(str(lock_path), os.O_WRONLY | os.O_CREAT, 0o600)
+        try:
+            if os.path.getsize(lock_path) == 0:
+                os.write(descriptor, b"\0")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+            if binding_path.exists() or context_path.exists():
+                raise ValueError("root session already has an unattested execution binding")
+            _atomic_json(context_path, context)
+            try:
+                result = self._prepare_validated(context, context_path, session)
+            except Exception:
+                context_path.unlink(missing_ok=True)
+                binding_path.unlink(missing_ok=True)
+                raise
+        finally:
+            if os.name == "nt":
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            os.close(descriptor)
+        result["task_context"] = str(context_path)
+        return result
+
     def prepare(self, task_context, session_id=None):
         context_path = Path(task_context).expanduser().resolve(strict=False)
         if not context_path.is_file():
@@ -143,10 +191,19 @@ class RootExecutionGate:
         context = json.loads(context_path.read_text(encoding="utf-8"))
         if context.get("schema_version") != "1.6":
             raise ValueError("root execution requires task context schema 1.6")
+        self._validate_context(context)
+        session = session_id or os.environ.get("CODEX_THREAD_ID")
+        if not isinstance(session, str) or not session.strip():
+            raise ValueError("root execution requires a session id")
+        return self._prepare_validated(context, context_path, session)
+
+    def _validate_context(self, context):
         report = Report()
         validate_task_context(context, report, check_paths=True, check_freshness=True)
         if report.errors:
             raise ValueError("task context validation failed: {}".format("; ".join(report.errors)))
+
+    def _prepare_validated(self, context, context_path, session):
         scope = context.get("scope")
         if not isinstance(scope, dict):
             raise ValueError("task context scope is invalid")
@@ -169,9 +226,6 @@ class RootExecutionGate:
                 raise ValueError("cannot resolve repository HEAD: {}".format(repo))
             baselines.append({"root": str(repo), "head": head.stdout.strip(), "status": _git_snapshot(repo)})
         created = self._now()
-        session = session_id or os.environ.get("CODEX_THREAD_ID")
-        if not isinstance(session, str) or not session.strip():
-            raise ValueError("root execution requires a session id")
         binding = {
             "schema_version": BINDING_SCHEMA,
             "task_id": context.get("task_id"),
@@ -196,7 +250,9 @@ class RootExecutionGate:
         tool_name = str(payload.get("tool_name") or payload.get("tool") or "")
         tool_input = payload.get("tool_input", {})
         command = str(tool_input.get("cmd") or tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
-        if tool_name == "exec_command" and READ_ONLY_COMMAND_RE.match(command.strip()):
+        if tool_name == "exec_command" and self._is_read_only_command(command):
+            return None
+        if tool_name == "exec_command" and self._is_bootstrap_command(command, payload):
             return None
         try:
             binding = self._active_binding(str(
@@ -224,6 +280,64 @@ class RootExecutionGate:
                 if not _covered(target, allowed):
                     return {"decision": "block", "reason": "拒绝根任务写入：命令目标超出 scope.allowed_paths（{}）。".format(target)}
         return None
+
+    @staticmethod
+    def _is_read_only_command(command):
+        try:
+            lexer = shlex.shlex(command, posix=os.name != "nt", punctuation_chars=";&|<>")
+            lexer.whitespace_split = True
+            tokens = list(lexer)
+        except ValueError:
+            return False
+        if not tokens or any(token in {";", "&", "&&", "|", "||", "<", ">", ">>"} for token in tokens):
+            return False
+        if any("$(" in token or "`" in token for token in tokens):
+            return False
+        executable = Path(tokens[0]).name
+        if executable in READ_ONLY_COMMANDS:
+            return executable != "pwd" or len(tokens) == 1
+        if executable != "git" or len(tokens) < 2:
+            return False
+        if tokens[1] in READ_ONLY_GIT_COMMANDS:
+            return True
+        return tokens[1:3] == ["branch", "--show-current"] and len(tokens) == 3
+
+    def _is_bootstrap_command(self, command, payload):
+        """Allow exactly the managed bootstrap CLI before a binding exists."""
+        try:
+            tokens = shlex.split(command, posix=os.name != "nt")
+        except ValueError:
+            return False
+        if len(tokens) != 7:
+            return False
+        executable, script, bootstrap, context_flag, encoded, session_flag, session = tokens
+        if (
+            not Path(executable).is_absolute()
+            or Path(executable).resolve(strict=False)
+            != Path(sys.executable).resolve(strict=False)
+        ):
+            return False
+        expected_script = (self.codex_home / "hooks/guard_task_writes.py").resolve(strict=False)
+        if Path(script).expanduser().resolve(strict=False) != expected_script:
+            return False
+        if (bootstrap, context_flag, session_flag) != (
+            "--bootstrap", "--task-context-base64", "--session-id"
+        ):
+            return False
+        payload_session = str(
+            payload.get("session_id") or payload.get("thread_id")
+            or os.environ.get("CODEX_THREAD_ID") or ""
+        )
+        if not payload_session or session != payload_session:
+            return False
+        if len(encoded) > 262144:
+            return False
+        try:
+            decoded = base64.b64decode(encoded.encode("ascii"), validate=True)
+            context = json.loads(decoded.decode("utf-8"))
+        except (ValueError, UnicodeError, json.JSONDecodeError):
+            return False
+        return isinstance(context, dict) and context.get("schema_version") == "1.6"
 
     def attest(self, binding_path, binding_file_hash):
         path = Path(binding_path).expanduser().resolve(strict=False)

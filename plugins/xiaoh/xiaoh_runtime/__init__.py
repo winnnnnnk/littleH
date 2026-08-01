@@ -1,4 +1,4 @@
-"""XiaoH 4.0.0 runtime public surface."""
+"""XiaoH 4.0.1 runtime public surface."""
 
 from .interface.cli import main
 

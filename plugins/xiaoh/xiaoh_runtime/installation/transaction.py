@@ -82,7 +82,7 @@ class TransactionalInstaller:
                 request.config_path,
             )
             transaction.record_plan(
-                plan.expected_creates + plan.expected_overwrites
+                plan.expected_creates + plan.expected_overwrites + plan.expected_deletes
             )
             self._write_journal(journal, transaction)
             self.fault("plan")
@@ -171,7 +171,10 @@ class TransactionalInstaller:
         target = asset.target
         if self.fs.is_symlink(target):
             raise ValueError(f"managed target cannot be a symlink: {target}")
-        if self.fs.is_dir(asset.candidate):
+        if asset.action == "delete":
+            if self.fs.exists(target):
+                self.fs.remove(target)
+        elif self.fs.is_dir(asset.candidate):
             stage = target.parent / f".xiaoh-stage-{target.name}"
             if self.fs.exists(stage):
                 self.fs.remove(stage)
@@ -223,7 +226,7 @@ class TransactionalInstaller:
             "schema_version": "xiaoh-cli-response/v2",
             "status": "degraded" if bundle.conflicts else "passed",
             "operation": request.operation,
-            "version": "4.0.0",
+            "version": "4.0.1",
             "transaction_id": transaction.transaction_id,
             "phase": transaction.phase.value,
             "backup": recovery.backup_root,
@@ -271,7 +274,7 @@ class TransactionalInstaller:
             "schema_version": "xiaoh-cli-response/v2",
             "status": "failed",
             "operation": request.operation,
-            "version": "4.0.0",
+            "version": "4.0.1",
             "transaction_id": transaction.transaction_id,
             "phase": transaction.phase.value,
             "backup": recovery.backup_root if recovery.complete else None,

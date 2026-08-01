@@ -18,7 +18,7 @@ from ..services.redaction import redact_mapping, redact_text
 from ..services.workspace import WorkspaceService
 
 
-VERSION = "4.0.0"
+VERSION = "4.0.1"
 REQUIRED_AGENTS = frozenset(
     {
         "frontend_implementer",
@@ -122,7 +122,7 @@ class PluginDiagnostic:
             for name, version in versions.items()
             if version != VERSION
         ]
-        if install_manifest.get("schema_version") != "xiaoh-install-manifest/v2":
+        if install_manifest.get("schema_version") != "xiaoh-install-manifest/v3":
             errors.append("install manifest schema is not supported")
         install_skills = install_manifest.get("bundled_skills")
         dependency_skills = dependencies.get("bundled_skills")
@@ -151,7 +151,7 @@ class PluginDiagnostic:
                 )
             facts["active_plugin"] = redact_mapping(active)
             if active.get("version") != VERSION:
-                errors.append("current process did not load XiaoH 4.0.0")
+                errors.append("current process did not load XiaoH 4.0.1")
         return DiagnosticResult(
             self.diagnostic_id,
             DiagnosticStatus.FAILED if errors else DiagnosticStatus.PASSED,
@@ -221,7 +221,7 @@ class LoadedSkillDiagnostic:
             DiagnosticStatus.FAILED if errors else DiagnosticStatus.PASSED,
             facts={"root": str(root), "version": version},
             errors=errors,
-            remediation=["restart into the XiaoH 4.0.0 Skill"] if errors else [],
+            remediation=["restart into the XiaoH 4.0.1 Skill"] if errors else [],
             runtime_checked=context.runtime_requested,
         )
 

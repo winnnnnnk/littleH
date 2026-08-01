@@ -1,6 +1,6 @@
 {
   "name": "xiaoh",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Standalone root-thread coordination with deterministic verification, verifiable project-history recall, optional task-scoped integrations, Workspace-aware project routing, immediate requirement baselines, task closeout, managed achievement pushes, humanized user-facing documentation, and a dual-entry development knowledge system for Codex.",
   "author": {
     "name": "XiaoH Project"

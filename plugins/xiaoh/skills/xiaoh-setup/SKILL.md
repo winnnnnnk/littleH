@@ -1,6 +1,6 @@
 ---
 name: xiaoh-setup
-description: Build and transactionally install the XiaoH 4.0.0 local runtime after the Codex plugin is installed. Use only when the user explicitly requests setup or a clean reinstall.
+description: Build and transactionally install the XiaoH 4.0.1 local runtime after the Codex plugin is installed. Use only when the user explicitly requests setup or a clean reinstall.
 ---
 
 # Initialize XiaoH

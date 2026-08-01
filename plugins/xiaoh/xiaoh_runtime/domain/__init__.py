@@ -1,4 +1,4 @@
-"""Pure XiaoH 4.0.0 domain state and rules."""
+"""Pure XiaoH 4.0.1 domain state and rules."""
 
 from .models import (
     ActivationState,

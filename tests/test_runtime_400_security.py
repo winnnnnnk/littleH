@@ -1,6 +1,7 @@
 """Security contract tests for XiaoH 4.0 Hook and Validator boundaries."""
 
 from datetime import datetime, timezone
+import base64
 import hashlib
 import json
 import os
@@ -206,6 +207,105 @@ class Runtime400DelegationSecurityTests(unittest.TestCase):
 
 
 class Runtime400VaultSecurityTests(unittest.TestCase):
+    def test_root_bootstrap_is_the_only_prebinding_write_entrypoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / ".codex"
+            hook = home / "hooks/guard_task_writes.py"
+            hook.parent.mkdir(parents=True)
+            hook.write_text("# managed hook\n", encoding="utf-8")
+            gate = RootExecutionGate(home)
+            encoded = base64.b64encode(b'{"schema_version":"1.6"}').decode("ascii")
+            command = (
+                f"{sys.executable} {hook} --bootstrap --task-context-base64 {encoded} "
+                "--session-id session-1"
+            )
+            payload = {
+                "tool_name": "exec_command",
+                "session_id": "session-1",
+                "tool_input": {"cmd": command},
+            }
+
+            self.assertIsNone(gate.decision(payload))
+            chained = json.loads(json.dumps(payload))
+            chained["tool_input"]["cmd"] += " ; touch /tmp/escaped"
+            self.assertEqual("block", gate.decision(chained)["decision"])
+            lookalike = json.loads(json.dumps(payload))
+            lookalike["tool_input"]["cmd"] = command.replace(
+                str(hook), str(home / "hooks/not-managed.py")
+            )
+            self.assertEqual("block", gate.decision(lookalike)["decision"])
+            wrong_session = json.loads(json.dumps(payload))
+            wrong_session["tool_input"]["cmd"] = command.replace(
+                "session-1", "session-2"
+            )
+            self.assertEqual("block", gate.decision(wrong_session)["decision"])
+
+            read_then_write = json.loads(json.dumps(payload))
+            read_then_write["tool_input"]["cmd"] = "git status && touch escaped.txt"
+            self.assertEqual("block", gate.decision(read_then_write)["decision"])
+
+    def test_root_bootstrap_atomically_writes_context_and_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = root / ".codex"
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.name", "Test"], check=True
+            )
+            source = repo / "source.txt"
+            source.write_text("accepted\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-m", "fixture"],
+                check=True,
+                capture_output=True,
+            )
+            context = json.loads(
+                (AGENT_SYSTEM / "task-context.template.json").read_text(encoding="utf-8")
+            )
+            context.update({"task_id": "bootstrap-test", "task_type": "analysis"})
+            context["scope"] = {
+                "workspace": str(repo),
+                "repositories": [str(repo)],
+                "allowed_paths": [str(repo)],
+                "preexisting_changes": [],
+                "prohibited_actions": ["write outside scope"],
+            }
+            context["sources"] = [{
+                "path": str(source),
+                "purpose": "fixture",
+                "required": True,
+                "kind": "file",
+                "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            }]
+            context["freshness"]["checked_at"] = datetime.now(timezone.utc).isoformat()
+
+            result = RootExecutionGate(home).bootstrap(context, "session-1")
+
+            context_path = Path(result["task_context"])
+            binding_path = Path(result["binding_path"])
+            self.assertTrue(context_path.is_file())
+            self.assertTrue(binding_path.is_file())
+            binding = json.loads(binding_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(context_path), binding["task_context"])
+
+            invalid_home = root / "invalid-home"
+            invalid = json.loads(json.dumps(context))
+            invalid["schema_version"] = "1.5"
+            with self.assertRaisesRegex(ValueError, "schema 1.6"):
+                RootExecutionGate(invalid_home).bootstrap(invalid, "session-2")
+            self.assertFalse(
+                (invalid_home / "agent-system/root-task-contexts").exists()
+            )
+            self.assertFalse(
+                (invalid_home / "agent-system/root-execution-bindings").exists()
+            )
     def test_other_vault_parent_escape_and_symlink_escape_are_denied(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

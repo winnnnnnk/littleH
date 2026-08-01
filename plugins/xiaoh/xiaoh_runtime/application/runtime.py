@@ -125,7 +125,7 @@ class RuntimeApplication:
                 "status": "failed",
                 "operation": "companions",
                 "errors": [
-                    "XiaoH 4.0.0 does not install plugins or external capabilities; use their owning installer manually"
+                    "XiaoH 4.0.1 does not install plugins or external capabilities; use their owning installer manually"
                 ],
                 "warnings": [],
             }
@@ -156,7 +156,7 @@ class RuntimeApplication:
         return {
             "status": "failed" if errors else ("degraded" if warnings else "passed"),
             "operation": "companions",
-            "version": "4.0.0",
+            "version": "4.0.1",
             "bundled_skills": dependencies.get("bundled_skills", []),
             "codex_plugins": dependencies.get("codex_plugins", []),
             "external_capabilities": dependencies.get("external_capabilities", []),
@@ -193,7 +193,7 @@ class RuntimeApplication:
         local = configuration.load(paths.config, missing_ok=True)
         if not local:
             local = configuration.merged_runtime_config(
-                {}, paths.codex_home, paths.vault, "4.0.0"
+                {}, paths.codex_home, paths.vault, "4.0.1"
             )
         updated = WorkspaceService().register(
             local, workspace_id, project, system, root

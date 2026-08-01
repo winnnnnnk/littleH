@@ -1,6 +1,6 @@
 # XiaoH Agent System
 
-XiaoH 4.0.0 uses a small deterministic governance runtime:
+XiaoH 4.0.1 uses a small deterministic governance runtime:
 
 - `task-context.template.json`: schema 1.6 task authority, source digests, scope, effect authorization, requirement state, delegated read/write policy, acceptance, and verification profile.
 - `run-record.template.json`: schema 1.2 command evidence, root scope proof, execution, and verification results.

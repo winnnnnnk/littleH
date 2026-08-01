@@ -46,7 +46,7 @@ Default to direct execution. Delegate only when the user has authorized Agent us
 ## Root execution gate
 
 - Task sources must be current files or directories with matching type and SHA-256 before binding.
-- Prepare with `guard_task_writes.py --prepare --task-context <absolute-path>` before repository writes, preserving the returned binding path and hash.
+- For a first binding, invoke the managed Hook with the same absolute Python interpreter used by the Hook: `<absolute-python> guard_task_writes.py --bootstrap --task-context-base64 <base64-json> --session-id <thread-id>`. This is the only write-capable command allowed before a binding and atomically creates the canonical task context plus binding. Keep `--prepare --task-context <absolute-path>` only for compatible flows where the context already exists.
 - Run each required check with `guard_task_writes.py --run-verification <verification-id> --binding <path> --binding-hash <sha256>` so the evidence is generated from the authorized command and current binding. The runner stores output digests, not raw stdout or stderr.
 - Finish with `guard_task_writes.py --attest --binding <path> --binding-hash <sha256>` and place the proof path/hash in the schema 1.2 run record.
 - Questions and hypotheses do not authorize side effects. Destructive or production effects require explicit authorization evidence in the task context.

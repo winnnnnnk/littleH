@@ -158,7 +158,7 @@ class Runtime400DoctorTests(unittest.TestCase):
                 json.dumps(
                     {
                         "schema_version": "xiaoh-config/v2",
-                        "installed_version": "4.0.0",
+                        "installed_version": "4.0.1",
                         "codex_home": str(codex),
                         "obsidian_vault": str(vault),
                     }
@@ -255,7 +255,7 @@ class Runtime400DoctorTests(unittest.TestCase):
             runtime_requested=True,
             runtime_facts={
                 "active_plugin": {
-                    "version": "4.0.0",
+                    "version": "4.0.1",
                     "nested": {"access_token": "never-expose-this"},
                 }
             },

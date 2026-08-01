@@ -10,8 +10,9 @@ from ..domain.models import AssetChange, InstallationPlan
 from ..ports.protocols import FileSystemPort
 
 
-RUNTIME_VERSION = "4.0.0"
-INSTALL_MANIFEST_SCHEMA = "xiaoh-install-manifest/v2"
+RUNTIME_VERSION = "4.0.1"
+INSTALL_MANIFEST_SCHEMA = "xiaoh-install-manifest/v3"
+MANAGED_RUNTIME_STATE_SCHEMA = "xiaoh-managed-runtime/v1"
 MANAGED_ROOT_FILES = (
     ("runtime/codex/AGENTS.md", "AGENTS.md", "contract"),
     ("runtime/codex/root-agent-hook.toml", "config.toml", "hook-config"),
@@ -63,6 +64,28 @@ class InstallationPlanner:
             source_root = self._safe_source(Path("runtime/codex") / directory)
             target_root = _safe_target(codex, Path(directory), "Codex managed directory")
             self._classify_tree(plan, source_root, target_root, f"codex-{directory}")
+        current_files = self._managed_runtime_files(manifest)
+        for relative in sorted(self._previous_managed_files(codex, manifest) - current_files):
+            target = _safe_target(codex, Path(relative), "retired managed runtime")
+            if self.fs.exists(target):
+                plan.assets.append(
+                    AssetChange(
+                        "retired-managed-runtime",
+                        "managed inventory",
+                        str(target),
+                        "delete",
+                        old_digest=self.fs.digest(target),
+                    )
+                )
+                _record_action(plan, str(target), "delete")
+        state_target = _safe_target(
+            codex, Path(".xiaoh-managed-runtime.json"), "managed runtime state"
+        )
+        state_action = "overwrite" if self.fs.exists(state_target) else "create"
+        plan.assets.append(
+            AssetChange("managed-runtime-state", "generated", str(state_target), state_action)
+        )
+        _record_action(plan, str(state_target), state_action)
         for source_relative, target_relative, asset_type in MANAGED_ROOT_FILES:
             source = self._safe_source(Path(source_relative))
             target = _safe_target(codex, Path(target_relative), "Codex managed file")
@@ -86,10 +109,58 @@ class InstallationPlanner:
             raise ValueError("install manifest schema is not supported")
         if value.get("version") != RUNTIME_VERSION:
             raise ValueError("install manifest version is not supported")
-        for key in ("managed_runtime_directories", "managed_agents"):
+        for key in (
+            "managed_runtime_directories",
+            "previous_managed_runtime_directories",
+            "managed_agents",
+            "previous_managed_runtime_files",
+        ):
             if not isinstance(value.get(key), list):
                 raise ValueError(f"install manifest {key} must be a list")
         return value
+
+    def _managed_runtime_files(self, manifest: dict[str, Any]) -> set[str]:
+        files: set[str] = set()
+        for directory in manifest["managed_runtime_directories"]:
+            source = self._safe_source(Path("runtime/codex") / directory)
+            for path in self.fs.iter_files(source):
+                files.add((Path(directory) / path.relative_to(source)).as_posix())
+        return files
+
+    def _previous_managed_files(
+        self, codex: Path, manifest: dict[str, Any]
+    ) -> set[str]:
+        values: Any = manifest["previous_managed_runtime_files"]
+        state_path = codex / ".xiaoh-managed-runtime.json"
+        if self.fs.is_file(state_path):
+            try:
+                state = json.loads(self.fs.read_text(state_path))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                state = None
+            if (
+                isinstance(state, dict)
+                and state.get("schema_version") == MANAGED_RUNTIME_STATE_SCHEMA
+            ):
+                values = state.get("managed_files")
+        if not isinstance(values, list):
+            raise ValueError("managed runtime inventory must be a list")
+        result: set[str] = set()
+        allowed_roots = set(manifest["managed_runtime_directories"]) | set(
+            manifest["previous_managed_runtime_directories"]
+        )
+        for value in values:
+            relative = Path(str(value))
+            if (
+                not isinstance(value, str)
+                or not value.strip()
+                or relative.is_absolute()
+                or ".." in relative.parts
+            ):
+                raise ValueError("managed runtime inventory contains an unsafe path")
+            if not relative.parts or relative.parts[0] not in allowed_roots:
+                raise ValueError("managed runtime inventory is outside declared directories")
+            result.add(relative.as_posix())
+        return result
 
     def _installed_version(self, config: Path) -> str | None:
         if not self.fs.is_file(config):

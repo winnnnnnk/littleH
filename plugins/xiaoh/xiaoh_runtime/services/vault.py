@@ -94,7 +94,7 @@ class VaultService:
                 files[item.relative] = previous_files[item.relative]
         return {
             "schema_version": "xiaoh-managed-vault/v2",
-            "template_version": "4.0.0",
+            "template_version": "4.0.1",
             "files": files,
         }
 

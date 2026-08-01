@@ -67,7 +67,11 @@ class WorkspaceService:
         existing = workspaces.get(workspace_id, {})
         if existing and not isinstance(existing, dict):
             raise ValueError(f"invalid Workspace: {workspace_id}")
-        roots = dict(existing.get("roots", {})) if isinstance(existing, dict) else {}
+        roots = (
+            self._registered_roots(existing.get("roots", {}))
+            if isinstance(existing, dict)
+            else {}
+        )
         roots[self.platform_name] = self._normalized(str(root))
         workspaces[workspace_id] = {
             "project": project,
@@ -76,6 +80,21 @@ class WorkspaceService:
         }
         result["workspaces"] = workspaces
         return result
+
+    def _registered_roots(self, value: Any) -> dict[str, str]:
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, list):
+            if not value:
+                return {}
+            if (
+                len(value) != 1
+                or not isinstance(value[0], str)
+                or not value[0].strip()
+            ):
+                raise ValueError("legacy Workspace roots must contain exactly one path")
+            return {"darwin": self._normalized(value[0])}
+        raise ValueError("Workspace roots must be an object or a legacy single-path list")
 
     def report(self, config: Mapping[str, Any]) -> dict[str, Any]:
         workspaces = config.get("workspaces", {})

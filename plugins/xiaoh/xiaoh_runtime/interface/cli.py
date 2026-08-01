@@ -1,4 +1,4 @@
-"""Thin command-line interface for XiaoH 4.0.0."""
+"""Thin command-line interface for XiaoH 4.0.1."""
 
 from __future__ import annotations
 

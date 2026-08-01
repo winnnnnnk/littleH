@@ -15,7 +15,7 @@ from plugins.xiaoh.xiaoh_runtime.domain.models import (
 class Runtime400DomainTests(unittest.TestCase):
     def test_doctor_aggregates_mixed_diagnostics_without_losing_results(self) -> None:
         diagnostics = [
-            DiagnosticResult("plugin", DiagnosticStatus.PASSED, facts={"version": "4.0.0"}),
+            DiagnosticResult("plugin", DiagnosticStatus.PASSED, facts={"version": "4.0.1"}),
             DiagnosticResult(
                 "vault",
                 DiagnosticStatus.DEGRADED,

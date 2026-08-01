@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launcher for the XiaoH 4.0.0 runtime."""
+"""Launcher for the XiaoH 4.0.1 runtime."""
 
 from __future__ import annotations
 

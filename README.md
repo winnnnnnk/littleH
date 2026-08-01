@@ -1,8 +1,8 @@
-# XiaoH 4.0.0
+# XiaoH 4.0.1
 
 XiaoH 是 Codex 的本地研发协调插件。它在当前根任务中理解目标、核对事实、整理需求、选择专业 Agent、推进实现、运行确定性验证，并把稳定结果写入配置的 Obsidian Vault。
 
-4.0.0 是一次运行时重写，不兼容 2.x 或 3.1.2 的内部模块、Schema、安装状态、Hook 绑定和事务证据。它保留用户可见的产品能力与受支持的长期资产，改用分层运行时、隔离候选、恢复清单、补偿事务、独立 Doctor 诊断和安全内核。代码评审只作为用户显式触发的单次 Skill：固定比较点、标准与需求两条轴、只报告问题，不自动修复、复审、创建 Campaign 或改变门禁状态。
+4.0.1 是 4.0.0 重写后的兼容性修复版本：补齐首次根绑定的原子 bootstrap、旧 Workspace roots 迁移和退出受管清单文件的事务化清理。4.0.0 的产品能力和内部断代边界保持不变。
 
 ## 能力
 
@@ -38,4 +38,4 @@ python3 plugins/xiaoh/scripts/xiaoh.py doctor --json
 
 Playbook 是可选集成。XiaoH 只读取 worker 和 task status 证据；Playbook CLI 的安装、升级、降级和版本切换必须由用户人工完成。
 
-4.0.0 的确认基线见 [Spec+RFC](docs/spec-rfc/xiaoh-4.0.0-runtime-rewrite.md) 与 [OpenSpec](openspec/changes/xiaoh-400-runtime-rewrite/README.md)。旧评审系统仅保留 [历史说明](docs/history/xiaoh-review-system-history.md)。
+4.0.0 的确认基线见 [Spec+RFC](docs/spec-rfc/xiaoh-4.0.0-runtime-rewrite.md) 与 [OpenSpec](openspec/changes/xiaoh-400-runtime-rewrite/README.md)；4.0.1 补丁见 [维护版本 Spec+RFC](docs/spec-rfc/xiaoh-4.0.1-maintenance-release.md) 与 [OpenSpec](openspec/changes/xiaoh-401-maintenance-release/proposal.md)。旧评审系统仅保留 [历史说明](docs/history/xiaoh-review-system-history.md)。

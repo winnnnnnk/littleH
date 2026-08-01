@@ -78,7 +78,7 @@ class Runtime400ServiceTests(unittest.TestCase):
             after = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
             payload = plan.to_dict()
             self.assertEqual(before, after)
-            self.assertEqual("4.0.0", payload["target_version"])
+            self.assertEqual("4.0.1", payload["target_version"])
             self.assertEqual([], payload["actual_writes"])
             self.assertTrue(payload["assets"])
             self.assertFalse(
@@ -121,7 +121,7 @@ class Runtime400ServiceTests(unittest.TestCase):
         self.assertNotIn("secret-token", encoded)
         self.assertNotIn("delegation_bindings", imported)
         self.assertNotIn("transaction", imported)
-        self.assertTrue(all(item["conversion_version"] == "4.0.0" for item in evidence))
+        self.assertTrue(all(item["conversion_version"] == "4.0.1" for item in evidence))
 
     def test_workspace_uses_unique_longest_active_platform_root(self) -> None:
         service = WorkspaceService(platform_name="darwin")
@@ -136,6 +136,46 @@ class Runtime400ServiceTests(unittest.TestCase):
 
         self.assertEqual("resolved", result["status"])
         self.assertEqual("child", result["workspace_id"])
+
+    def test_register_workspace_migrates_legacy_single_root_list(self) -> None:
+        service = WorkspaceService(platform_name="linux")
+        config = {
+            "workspaces": {
+                "legacy": {
+                    "project": "old-project",
+                    "system": "old-system",
+                    "roots": ["/legacy/path"],
+                }
+            }
+        }
+
+        result = service.register(
+            config,
+            "legacy",
+            "new-project",
+            "new-system",
+            Path("/current/path"),
+        )
+
+        self.assertEqual(
+            {"darwin": "/legacy/path", "linux": "/current/path"},
+            result["workspaces"]["legacy"]["roots"],
+        )
+
+    def test_register_workspace_rejects_ambiguous_legacy_root_list(self) -> None:
+        service = WorkspaceService(platform_name="darwin")
+        config = {
+            "workspaces": {
+                "legacy": {
+                    "project": "p",
+                    "system": "s",
+                    "roots": ["/one", "/two"],
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "exactly one path"):
+            service.register(config, "legacy", "p", "s", Path("/current"))
 
     def test_workspace_rejects_equal_strength_conflict(self) -> None:
         service = WorkspaceService(platform_name="darwin")

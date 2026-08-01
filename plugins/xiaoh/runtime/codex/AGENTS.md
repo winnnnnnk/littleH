@@ -5,7 +5,7 @@
 <!-- codebase-memory-mcp:end -->
 
 <!-- global-agent-common-contract:start -->
-# XiaoH 4.0.0 全局执行契约
+# XiaoH 4.0.1 全局执行契约
 
 ## 根线程与角色
 

@@ -20,7 +20,7 @@
   ],
   "comparison_audit": {
     "audit_id": "mattpocock-skills-2ab9580-for-xiaoh-4.0.0",
-    "target_version": "4.0.0",
+    "target_version": "4.0.1",
     "audited": true,
     "fixed_source_commit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
     "expected_counts": {

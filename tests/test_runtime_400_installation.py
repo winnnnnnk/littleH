@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 from plugins.xiaoh.xiaoh_runtime.adapters.local import LocalFileSystem, SystemClock
 from plugins.xiaoh.xiaoh_runtime.installation.candidate import CandidateBuilder
+from plugins.xiaoh.xiaoh_runtime.installation.planner import InstallationPlanner
 from plugins.xiaoh.xiaoh_runtime.installation.transaction import (
     FaultInjector,
     InstallRequest,
@@ -52,7 +54,7 @@ class Runtime400InstallationTests(unittest.TestCase):
             )
             self.assertTrue(Path(result["backup"]).is_dir())
             installed = json.loads(request.config_path.read_text(encoding="utf-8"))
-            self.assertEqual("4.0.0", installed["installed_version"])
+            self.assertEqual("4.0.1", installed["installed_version"])
             self.assertEqual(
                 {
                     "frontend_implementer",
@@ -156,6 +158,94 @@ class Runtime400InstallationTests(unittest.TestCase):
             self.assertEqual("passed", second["status"], second)
             self.assertEqual([], second["actual_writes"])
 
+    def test_update_deletes_files_that_left_the_managed_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            request = _update_request(Path(temp))
+            stale = request.codex_home / "hooks/old-runtime.py"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("old runtime\n", encoding="utf-8")
+            state = request.codex_home / ".xiaoh-managed-runtime.json"
+            state.write_text(
+                json.dumps({
+                    "schema_version": "xiaoh-managed-runtime/v1",
+                    "version": "4.0.1",
+                    "managed_files": ["hooks/old-runtime.py"],
+                }),
+                encoding="utf-8",
+            )
+
+            result = TransactionalInstaller(self.fs, SystemClock(), PLUGIN).execute(request)
+
+            self.assertEqual("passed", result["status"], result)
+            self.assertEqual("same_version_sync", result["plan"]["mode"])
+            self.assertFalse(stale.exists())
+            self.assertIn(str(stale.resolve()), result["plan"]["expected_deletes"])
+            installed_state = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual("xiaoh-managed-runtime/v1", installed_state["schema_version"])
+            self.assertNotIn("hooks/old-runtime.py", installed_state["managed_files"])
+
+    def test_upgrade_without_state_uses_previous_manifest_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            plugin = root / "plugin"
+            shutil.copytree(PLUGIN, plugin)
+            retired = (
+                "hooks/guard_task_writes.py",
+                "agent-system/xiaoh_security/execution.py",
+            )
+            for relative in retired:
+                (plugin / "runtime/codex" / relative).unlink()
+            request = _request(root / "target")
+            request.codex_home.mkdir(parents=True)
+            for relative in retired:
+                target = request.codex_home / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("old managed runtime\n", encoding="utf-8")
+
+            plan = InstallationPlanner(self.fs, plugin).create_plan(
+                "update", request.codex_home, request.vault, request.config_path
+            )
+
+            self.assertEqual(
+                {str((request.codex_home / relative).resolve()) for relative in retired},
+                set(plan.expected_deletes),
+            )
+
+    def test_failure_after_stale_delete_restores_deleted_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            request = _update_request(Path(temp))
+            stale = request.codex_home / "hooks/old-runtime.py"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("old runtime\n", encoding="utf-8")
+            state = request.codex_home / ".xiaoh-managed-runtime.json"
+            state.write_text(
+                json.dumps({
+                    "schema_version": "xiaoh-managed-runtime/v1",
+                    "version": "4.0.1",
+                    "managed_files": ["hooks/old-runtime.py"],
+                }),
+                encoding="utf-8",
+            )
+            installer = TransactionalInstaller(
+                self.fs,
+                SystemClock(),
+                PLUGIN,
+                fault_injector=FaultInjector({"static-doctor"}),
+            )
+
+            result = installer.execute(request)
+
+            self.assertEqual("rolled_back", result["phase"], result)
+            self.assertEqual("old runtime\n", stale.read_text(encoding="utf-8"))
+            self.assertIn(str(stale.resolve()), result["actual_writes"])
+            self.assertTrue(
+                any(
+                    action["target"] == str(stale.resolve())
+                    and action["status"] == "restored"
+                    for action in result["recovery_actions"]
+                )
+            )
+
     def test_custom_agent_and_vault_customization_are_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             request = _request(Path(temp))
@@ -215,6 +305,27 @@ def _request(root: Path) -> InstallRequest:
         codex_home=root / "codex",
         vault=vault,
         config_path=root / "xiaoh/config.json",
+    )
+
+
+def _update_request(root: Path) -> InstallRequest:
+    base = _request(root)
+    base.config_path.parent.mkdir(parents=True, exist_ok=True)
+    base.config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "xiaoh-config/v2",
+                "installed_version": "4.0.1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return InstallRequest(
+        operation="update",
+        root=base.root,
+        codex_home=base.codex_home,
+        vault=base.vault,
+        config_path=base.config_path,
     )
 
 

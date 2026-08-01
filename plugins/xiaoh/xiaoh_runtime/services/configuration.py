@@ -162,7 +162,7 @@ def _redact_mapping(
 def _import_evidence(source: str, result: str) -> dict[str, str]:
     return {
         "source": source,
-        "conversion_version": "4.0.0",
+        "conversion_version": "4.0.1",
         "result": result,
         "conflict_status": "none",
     }

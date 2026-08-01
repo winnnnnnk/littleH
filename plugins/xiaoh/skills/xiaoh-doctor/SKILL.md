@@ -1,6 +1,6 @@
 ---
 name: xiaoh-doctor
-description: Diagnose XiaoH 4.0.0 installation and activation across plugin, Skill governance, managed runtime, Agents, Hooks, Validator, Vault, Workspace, automation, and optional Playbook facts. Use when the user asks whether XiaoH is installed, active, trusted, working, or ready.
+description: Diagnose XiaoH 4.0.1 installation and activation across plugin, Skill governance, managed runtime, Agents, Hooks, Validator, Vault, Workspace, automation, and optional Playbook facts. Use when the user asks whether XiaoH is installed, active, trusted, working, or ready.
 ---
 
 # 检查xiaoh

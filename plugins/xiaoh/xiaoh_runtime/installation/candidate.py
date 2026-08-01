@@ -16,7 +16,8 @@ from ..services.vault import VaultService
 
 
 TEXT_EXTENSIONS = {".md", ".toml", ".json", ".py", ".js", ".yaml", ".yml", ".txt"}
-INSTALL_MANIFEST_SCHEMA = "xiaoh-install-manifest/v2"
+INSTALL_MANIFEST_SCHEMA = "xiaoh-install-manifest/v3"
+MANAGED_RUNTIME_STATE_SCHEMA = "xiaoh-managed-runtime/v1"
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,45 @@ class CandidateBuilder:
                 self.fs.remove(reserved)
             assets.append(self._switch_asset(candidate, codex_home / directory, f"codex-{directory}"))
 
+        managed_files = self._managed_runtime_files(manifest)
+        previous_files = self._previous_managed_files(codex_home, manifest)
+        for relative in sorted(previous_files - managed_files):
+            target = self._managed_target(codex_home, relative)
+            if self.fs.exists(target):
+                assets.append(
+                    SwitchAsset(
+                        root / "deletions" / relative,
+                        target,
+                        "retired-managed-runtime",
+                        "delete",
+                        self.fs.digest(target),
+                        None,
+                    )
+                )
+
+        runtime_state_candidate = root / "codex-root/.xiaoh-managed-runtime.json"
+        self.fs.write_text_atomic(
+            runtime_state_candidate,
+            json.dumps(
+                {
+                    "schema_version": MANAGED_RUNTIME_STATE_SCHEMA,
+                    "version": "4.0.1",
+                    "managed_files": sorted(managed_files),
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+        )
+        assets.append(
+            self._switch_asset(
+                runtime_state_candidate,
+                codex_home / ".xiaoh-managed-runtime.json",
+                "managed-runtime-state",
+            )
+        )
+
         agents_target = self._active_agents_target(codex_home)
         agents_candidate = root / "codex-root" / agents_target.name
         current_agents = self.fs.read_text(agents_target) if self.fs.is_file(agents_target) else ""
@@ -136,7 +176,7 @@ class CandidateBuilder:
         old_config = configuration.load(config_path, missing_ok=True)
         durable, _ = configuration.import_312_durable_state(old_config)
         generated = configuration.merged_runtime_config(
-            durable, codex_home, vault, "4.0.0"
+            durable, codex_home, vault, "4.0.1"
         )
         config_candidate_json = root / "local/config.json"
         self.fs.write_text_atomic(
@@ -156,7 +196,9 @@ class CandidateBuilder:
         self._replace_placeholders(root, replacements)
         self._bind_template_hash(root)
         assets = [
-            self._switch_asset(item.candidate, item.target, item.asset_type)
+            item
+            if item.action == "delete"
+            else self._switch_asset(item.candidate, item.target, item.asset_type)
             for item in assets
         ]
         self._validate_assets(root, assets)
@@ -167,7 +209,7 @@ class CandidateBuilder:
                 {
                     "schema_version": "xiaoh-candidate/v1",
                     "transaction_id": transaction_id,
-                    "version": "4.0.0",
+                    "version": "4.0.1",
                     "assets": [
                         {
                             "candidate": str(item.candidate),
@@ -176,7 +218,7 @@ class CandidateBuilder:
                             "action": item.action,
                             "old_digest": item.old_digest,
                             "new_digest": item.new_digest,
-                            "size": self.fs.size(item.candidate),
+                            "size": 0 if item.action == "delete" else self.fs.size(item.candidate),
                         }
                         for item in assets
                     ],
@@ -202,13 +244,64 @@ class CandidateBuilder:
         if (
             not isinstance(value, dict)
             or value.get("schema_version") != INSTALL_MANIFEST_SCHEMA
-            or value.get("version") != "4.0.0"
+            or value.get("version") != "4.0.1"
         ):
-            raise ValueError("candidate requires the 4.0.0 install manifest")
-        for key in ("managed_runtime_directories", "managed_agents"):
+            raise ValueError("candidate requires the 4.0.1 install manifest")
+        for key in (
+            "managed_runtime_directories",
+            "previous_managed_runtime_directories",
+            "managed_agents",
+            "previous_managed_runtime_files",
+        ):
             if not isinstance(value.get(key), list):
                 raise ValueError(f"install manifest {key} must be a list")
         return value
+
+    def _managed_runtime_files(self, manifest: dict[str, Any]) -> set[str]:
+        files: set[str] = set()
+        for directory in manifest["managed_runtime_directories"]:
+            source = self.plugin_root / "runtime/codex" / directory
+            for path in self.fs.iter_files(source):
+                files.add((Path(directory) / path.relative_to(source)).as_posix())
+        return files
+
+    def _previous_managed_files(
+        self, codex_home: Path, manifest: dict[str, Any]
+    ) -> set[str]:
+        state = self._optional_json(codex_home / ".xiaoh-managed-runtime.json")
+        values = (
+            state.get("managed_files")
+            if isinstance(state, dict)
+            and state.get("schema_version") == MANAGED_RUNTIME_STATE_SCHEMA
+            else manifest["previous_managed_runtime_files"]
+        )
+        if not isinstance(values, list):
+            raise ValueError("managed runtime inventory must be a list")
+        result: set[str] = set()
+        allowed_roots = set(manifest["managed_runtime_directories"]) | set(
+            manifest["previous_managed_runtime_directories"]
+        )
+        for value in values:
+            relative = Path(str(value))
+            if (
+                not isinstance(value, str)
+                or not value.strip()
+                or relative.is_absolute()
+                or ".." in relative.parts
+            ):
+                raise ValueError("managed runtime inventory contains an unsafe path")
+            if not relative.parts or relative.parts[0] not in allowed_roots:
+                raise ValueError("managed runtime inventory is outside declared directories")
+            result.add(relative.as_posix())
+        return result
+
+    def _managed_target(self, codex_home: Path, relative: str) -> Path:
+        target = (codex_home / relative).resolve(strict=False)
+        try:
+            target.relative_to(codex_home.resolve(strict=False))
+        except ValueError as exc:
+            raise ValueError("managed runtime inventory escapes Codex home") from exc
+        return target
 
     def _active_agents_target(self, codex_home: Path) -> Path:
         override = codex_home / "AGENTS.override.md"
@@ -262,16 +355,17 @@ class CandidateBuilder:
     def _validate_assets(self, root: Path, assets: list[SwitchAsset]) -> None:
         targets: set[str] = set()
         for item in assets:
-            if not self.fs.exists(item.candidate):
+            if item.action != "delete" and not self.fs.exists(item.candidate):
                 raise ValueError(f"candidate asset is missing: {item.candidate}")
-            try:
-                item.candidate.resolve(strict=False).relative_to(root.resolve(strict=False))
-            except ValueError as exc:
-                raise ValueError(f"candidate asset escapes root: {item.candidate}") from exc
+            if item.action != "delete":
+                try:
+                    item.candidate.resolve(strict=False).relative_to(root.resolve(strict=False))
+                except ValueError as exc:
+                    raise ValueError(f"candidate asset escapes root: {item.candidate}") from exc
             if str(item.target) in targets:
                 raise ValueError(f"duplicate candidate target: {item.target}")
             targets.add(str(item.target))
-            if item.new_digest is None:
+            if item.action != "delete" and item.new_digest is None:
                 raise ValueError(f"candidate asset has no digest: {item.candidate}")
         for path in self.fs.iter_files(root):
             if path.suffix.lower() in TEXT_EXTENSIONS:
