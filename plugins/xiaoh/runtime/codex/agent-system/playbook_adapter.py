@@ -63,8 +63,8 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
 def successful_payload(value: dict[str, Any]) -> dict[str, Any]:
     if value.get("status") in {"failed", "error"}:
         raise AdapterError("Playbook evidence reports failure")
-    payload = value.get("data") if isinstance(value.get("data"), dict) else value
-    return payload
+    payload = value.get("data")
+    return payload if isinstance(payload, dict) else value
 
 
 def worker_facts(path: Path) -> dict[str, Any]:

@@ -16,6 +16,9 @@ from xiaoh_security.vault_guard import VaultWriteGuard, deny, self_test  # noqa:
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--config")
     parser.add_argument("--self-test", action="store_true")

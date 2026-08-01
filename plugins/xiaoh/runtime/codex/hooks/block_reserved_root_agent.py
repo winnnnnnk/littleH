@@ -16,6 +16,9 @@ from xiaoh_security.delegation import DelegationGate, deny, self_test  # noqa: E
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--config")
     parser.add_argument("--prepare", action="store_true")

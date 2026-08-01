@@ -167,11 +167,12 @@ class SkillGovernanceDiagnostic:
 
     def run(self, context: DiagnosticContext) -> DiagnosticResult:
         report = SkillGovernance(context.filesystem, context.plugin_root).validate()
+        report_status = report.get("status")
         status = {
             "passed": DiagnosticStatus.PASSED,
             "degraded": DiagnosticStatus.DEGRADED,
             "failed": DiagnosticStatus.FAILED,
-        }.get(report.get("status"), DiagnosticStatus.FAILED)
+        }.get(report_status if isinstance(report_status, str) else "", DiagnosticStatus.FAILED)
         return DiagnosticResult(
             self.diagnostic_id,
             status,
@@ -430,11 +431,13 @@ class AutomationDiagnostic:
         config = ConfigurationService(context.filesystem).load(context.config_path, missing_ok=True)
         manifest = _json_object(context, context.plugin_root / "managed-automations.json")
         templates = manifest.get("templates", [])
-        required = [
-            item.get("logical_id")
-            for item in templates
-            if isinstance(item, dict) and item.get("required", True)
-        ]
+        required = []
+        for item in templates:
+            if not isinstance(item, dict) or not item.get("required", True):
+                continue
+            logical_id = item.get("logical_id")
+            if isinstance(logical_id, str):
+                required.append(logical_id)
         bindings = config.get("automation_bindings", {})
         if not isinstance(bindings, dict):
             bindings = {}

@@ -239,12 +239,15 @@ class Runtime400VaultSecurityTests(unittest.TestCase):
             )
 
     def test_hook_entrypoints_keep_self_test_contract(self):
+        environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "cp1252"
         for script in ("block_reserved_root_agent.py", "guard_vault_writes.py", "guard_task_writes.py"):
             completed = subprocess.run(
                 [sys.executable, str(HOOKS / script), "--self-test"],
                 capture_output=True,
                 text=True,
                 check=False,
+                env=environment,
             )
             self.assertEqual(0, completed.returncode, completed.stderr)
 
@@ -277,7 +280,10 @@ class Runtime400ValidatorContractTests(unittest.TestCase):
     def test_agent_catalog_has_only_the_five_specialists(self):
         report = Report()
 
-        validate_agent_catalog(report)
+        validate_agent_catalog(
+            report,
+            agents_dir=ROOT / "plugins/xiaoh/runtime/codex/agents",
+        )
 
         self.assertEqual([], report.errors)
         self.assertEqual(

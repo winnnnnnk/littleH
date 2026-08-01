@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, NoReturn, Optional, Sequence
 
 from ..adapters.automation import LocalAutomationStore
 from ..adapters.local import LocalFileSystem, SubprocessRunner, SystemClock
@@ -44,7 +44,7 @@ class CLIArgumentError(ValueError):
 
 
 class XiaoHArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         raise CLIArgumentError(message)
 
 

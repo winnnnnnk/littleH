@@ -218,7 +218,11 @@ class SkillGovernance:
         ):
             errors.append(f"{source_id} future-source re-audit policy is incomplete")
         dimensions = manifest.get("comparison_dimensions")
-        if not _unique_strings(dimensions) or len(dimensions) < 4:
+        if (
+            not isinstance(dimensions, list)
+            or not _unique_strings(dimensions)
+            or len(dimensions) < 4
+        ):
             errors.append(f"{source_id} comparison dimensions are incomplete")
         decisions = manifest.get("decisions")
         if not isinstance(decisions, list):
@@ -282,7 +286,7 @@ class SkillGovernance:
         if skill not in bundled:
             errors.append(f"{source_id} adapted Skill is not bundled: {skill}")
         files = item.get("files")
-        if not _unique_strings(files):
+        if not isinstance(files, list) or not _unique_strings(files):
             errors.append(f"{source_id} adapted file list is invalid: {skill}")
             return
         root = self.plugin_root / "skills" / skill

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
 import shutil
 import stat
@@ -14,12 +15,6 @@ from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Optional, Sequence
 
 from ..ports.protocols import ProcessResult
-
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 
 class LocalFileSystem:
     """Filesystem effects with atomic file writes and explicit paths."""
@@ -146,17 +141,19 @@ class LocalFileSystem:
                 stream.flush()
             stream.seek(0)
             if os.name == "nt":
-                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+                lock_api = importlib.import_module("msvcrt")
+                lock_api.locking(stream.fileno(), lock_api.LK_LOCK, 1)
             else:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+                lock_api = importlib.import_module("fcntl")
+                lock_api.flock(stream.fileno(), lock_api.LOCK_EX)
             try:
                 yield
             finally:
                 stream.seek(0)
                 if os.name == "nt":
-                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                    lock_api.locking(stream.fileno(), lock_api.LK_UNLCK, 1)
                 else:
-                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                    lock_api.flock(stream.fileno(), lock_api.LOCK_UN)
 
 
 class SystemClock:

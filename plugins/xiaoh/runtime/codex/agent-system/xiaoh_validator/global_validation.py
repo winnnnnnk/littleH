@@ -23,17 +23,18 @@ REMOVED_REVIEW_ASSETS = {
 }
 
 
-def validate_agent_catalog(report):
-    if not AGENTS_DIR.is_dir():
-        report.error("agents directory does not exist: {}".format(AGENTS_DIR))
+def validate_agent_catalog(report, agents_dir=None):
+    agents_dir = Path(agents_dir) if agents_dir is not None else AGENTS_DIR
+    if not agents_dir.is_dir():
+        report.error("agents directory does not exist: {}".format(agents_dir))
         return
-    found = {path.stem for path in AGENTS_DIR.glob("*.toml")}
+    found = {path.stem for path in agents_dir.glob("*.toml")}
     missing = REGISTERED_AGENTS - found
     if missing:
         report.error("missing managed agents: {}".format(", ".join(sorted(missing))))
     if ROOT_AGENT in found:
         report.error("reserved root identity must not be registered as an Agent")
-    stale = {name for name in REMOVED_REVIEW_ASSETS if (AGENTS_DIR / name).exists()}
+    stale = {name for name in REMOVED_REVIEW_ASSETS if (agents_dir / name).exists()}
     if stale:
         report.error("removed review agents are still installed: {}".format(", ".join(sorted(stale))))
     report.details["managed_agents"] = sorted(REGISTERED_AGENTS)
