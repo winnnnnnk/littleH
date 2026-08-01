@@ -1,17 +1,24 @@
 {
   "schema_version": "1.0",
   "bundled_skills": [
+    "codebase-design",
+    "diagnosing-bugs",
+    "domain-modeling",
     "fit-for-purpose-engineering",
     "humanizer",
+    "improve-codebase-architecture",
+    "prototype",
+    "research",
+    "resolving-merge-conflicts",
     "spec-rfc",
     "spec-rfc-openspec-consistency-review",
     "spec-rfc-reviewer",
+    "tdd",
+    "wayfinder",
     "xiaoh-core",
     "xiaoh-daily-progress",
     "xiaoh-doctor",
     "xiaoh-knowledge-promotion",
-    "xiaoh-knowledge-review",
-    "xiaoh-local-review",
     "xiaoh-playbook-adapter",
     "xiaoh-project-recall",
     "xiaoh-project-progress",
@@ -21,6 +28,18 @@
     "xiaoh-task-closeout",
     "xiaoh-update",
     "xiaoh-workspace-routing"
+  ],
+  "third_party_skill_sources": [
+    {
+      "id": "mattpocock-skills",
+      "repository": "https://github.com/mattpocock/skills",
+      "commit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Matt Pocock",
+      "license_file": "third_party/mattpocock-skills/LICENSE",
+      "license_sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+      "comparison_manifest": "third_party/mattpocock-skills/manifest.json"
+    }
   ],
   "codex_plugins": [
     {

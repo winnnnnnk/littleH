@@ -1,0 +1,12 @@
+{
+  "schema_version": "xiaoh-validator-ownership/v2",
+  "ownership": {
+    "contract": ["AGENTS.md", "task-context.template.json", "run-record.template.json"],
+    "skill": ["requirements lifecycle", "implementation workflow", "task closeout"],
+    "policy": ["intent domains", "lifecycle states", "freshness", "routing", "role constraints"],
+    "schema": ["project recall", "delegation binding", "delegation proof", "verification evidence"],
+    "validator": ["task context", "requirements", "recall", "delegation", "run record", "task closeout", "global configuration"],
+    "integration": ["Playbook worker and status receipt"],
+    "documentation": ["usage and rationale"]
+  }
+}

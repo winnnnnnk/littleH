@@ -1,0 +1,46 @@
+{
+  "schema_version": "xiaoh-install-manifest/v1",
+  "version": "3.1.2",
+  "managed_runtime_directories": [
+    "agents",
+    "contexts",
+    "agent-system",
+    "hooks"
+  ],
+  "bundled_skills": [
+    "codebase-design",
+    "diagnosing-bugs",
+    "domain-modeling",
+    "fit-for-purpose-engineering",
+    "humanizer",
+    "improve-codebase-architecture",
+    "prototype",
+    "research",
+    "resolving-merge-conflicts",
+    "spec-rfc",
+    "spec-rfc-openspec-consistency-review",
+    "spec-rfc-reviewer",
+    "tdd",
+    "wayfinder",
+    "xiaoh-core",
+    "xiaoh-daily-progress",
+    "xiaoh-doctor",
+    "xiaoh-knowledge-promotion",
+    "xiaoh-playbook-adapter",
+    "xiaoh-project-recall",
+    "xiaoh-project-progress",
+    "xiaoh-requirement-baseline",
+    "xiaoh-requirement-routing",
+    "xiaoh-setup",
+    "xiaoh-task-closeout",
+    "xiaoh-update",
+    "xiaoh-workspace-routing"
+  ],
+  "managed_agents": [
+    "frontend_implementer",
+    "java_architect",
+    "java_code_explorer",
+    "java_implementer",
+    "pki_domain_expert"
+  ]
+}

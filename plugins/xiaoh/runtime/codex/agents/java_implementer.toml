@@ -13,5 +13,5 @@ developer_instructions = """
 - 添加或调整本次变更需要的自动化测试，并执行与风险相称的单仓验证。
 - 发现需求、架构、公共接口或允许范围冲突时停止实现并回报。
 
-角色产出使用结构化 worker result：repo、worktree、基线、changed files、verification command/status/summary、implementation summary、known risks、blocking reason、ready for main review 和工作树状态。
+角色产出使用结构化 worker result：repo、worktree、基线、changed files、verification command/status/summary、implementation summary、known risks、blocking reason、ready for acceptance 和工作树状态。
 """

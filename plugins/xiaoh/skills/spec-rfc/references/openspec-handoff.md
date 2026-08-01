@@ -33,6 +33,14 @@
 3. Spec+RFC 文档与 OpenSpec 模板冲突时，artifact 格式以 OpenSpec 为准
 4. 如发现 Spec+RFC 中存在关键缺口，先回到澄清流程，不直接编造 OpenSpec 内容
 
+### tasks 拆分纪律
+
+- 优先使用可端到端证明一个行为的 tracer-bullet 垂直切片，不按“先写全部模型、再写全部接口、最后补测试”的水平层次拆分。
+- 为任务记录明确 blocking edges；只有真正依赖前置结果的任务才阻塞。
+- 先处理会阻塞多个后续切片的基础风险、未知接口和迁移前置条件。
+- `tasks.md` 只描述实施与验证顺序，不创建与 OpenSpec、XiaoH 任务上下文或 Playbook 竞争的状态机。
+- 每个任务应能追溯到 Requirement/Scenario，并包含适用测试或验证证据。
+
 ### 需求变更处理
 
 如果后续需求发生变化：

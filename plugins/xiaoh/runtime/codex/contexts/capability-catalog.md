@@ -1,27 +1,26 @@
-# 能力目录
+# XiaoH 能力目录
 
-## 协调与治理
+## 核心能力
 
-- 意图域隔离：区分全局能力、平台能力和业务项目。
-- 上下文门禁：校验目标、范围、事实源、验收与停止条件。
-- 委派门禁：保护 `xiaoh` 根身份并认证正式专业 Agent 运行。
-- 证据闭环：任务上下文、运行记录、验证和独立评审可追溯。
-- 配置进化：依据真实运行证据提出改进候选，不自动扩大权限。
+- 根线程协调：理解目标、事实核对、方案比较、路由、验收和持续推进。
+- 需求工程：Workspace 归属、项目历史召回、需求基线、Spec+RFC、OpenSpec 追溯和用户确认。
+- 需求工件检查：按需执行 Spec+RFC 准入和 Spec/OpenSpec 一致性单次检查，不形成自动复查循环。
+- 工程执行：代码探索、架构设计、Java/前端实现、TDD、缺陷诊断和合并冲突处理。
+- PKI：证书、密钥、CA/RA、OCSP/CRL、信任边界、算法和安全失败路径分析。
+- 确定性验证：格式、静态检查、构建、测试、契约、追溯和运行证据。
+- 知识闭环：任务即时收口、项目进度、每日成果和用户确认后的知识晋升。
+- 运行时治理：安装、同版本同步、Doctor、Hook 信任和插件依赖诊断。
 
-## 专业角色
+## 专业 Agent
 
-- `java_code_explorer`：只读探索 Java 代码与影响面。
-- `java_architect`：架构、接口、依赖和实施边界判断。
-- `java_implementer`：在单一授权范围内实现 Java 变更。
-- `frontend_implementer`：在单一授权范围内实现前端变更。
-- `pki_domain_expert`：PKI 语义、生命周期和验收判断。
-- `pki_security_reviewer`：密码、密钥、信任边界与安全专项评审。
-- `test_integration_verifier`：测试矩阵、独立验证和集成证据审计。
-- `code_quality_reviewer`：正确性、回归、并发、性能和测试缺口评审。
+- `java_code_explorer`：只读定位入口、调用链、数据流和影响面。
+- `java_architect`：系统边界、接口、兼容、数据流和实施方案。
+- `java_implementer`：在单一授权仓库内完成 Java 改动和验证。
+- `frontend_implementer`：在单一授权仓库内完成前端改动和验证。
+- `pki_domain_expert`：PKI 领域语义、安全边界和验收规则。
 
-## 通用 Skill
+`xiaoh` 是根线程身份，不注册为 Agent。
 
-- `spec-rfc`：把需求整理为可评审的 Spec/RFC。
-- `spec-rfc-reviewer`：判断方案是否达到开发准入标准。
-- `spec-rfc-openspec-consistency-review`：审核源文档与 OpenSpec 工件一致性。
-- `fit-for-purpose-engineering`：比较最小改动与更符合业务目标的实现路径。
+## 质量方法
+
+实施质量由确认基线、单一写入责任、确定性验证和运行证据共同保证。发现失败后定位根因、完整修复同类路径并重跑受影响检查，不使用评审轮次状态机。

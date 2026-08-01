@@ -23,5 +23,5 @@
     "boundary_violations": 1,
     "escaped_defects": 1
   },
-  "decision_rule": "指标只产生阶段评审建议；阶段变化、职责、权限、门禁、模型、工具或角色结构调整仍需xiaoh复核，并按公共契约取得用户确认"
+  "decision_rule": "指标只产生阶段调整建议；阶段变化、职责、权限、门禁、模型、工具或角色结构调整仍需xiaoh核对，并按公共契约取得用户确认"
 }

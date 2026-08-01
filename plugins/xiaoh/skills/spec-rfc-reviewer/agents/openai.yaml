@@ -1,7 +1,7 @@
 interface:
   display_name: "Spec+RFC Reviewer"
-  short_description: "评审需求与设计是否可进入编码"
-  default_prompt: "使用 $spec-rfc-reviewer 审核这份 Spec+RFC，并判断它是否已经可以进入编码。"
+  short_description: "检查需求与设计是否达到OpenSpec准入条件"
+  default_prompt: "使用 $spec-rfc-reviewer 检查这份 Spec+RFC 的完整性、可实施性和准入条件。"
 
 policy:
   allow_implicit_invocation: true

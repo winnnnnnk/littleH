@@ -1,0 +1,244 @@
+{
+  "schema_version": "xiaoh-third-party-skills/v1",
+  "source": {
+    "repository": "https://github.com/mattpocock/skills",
+    "commit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 Matt Pocock",
+    "license_file": "LICENSE",
+    "license_sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
+  },
+  "comparison_dimensions": [
+    "goal_coverage",
+    "engineering_correctness",
+    "user_interaction_burden",
+    "compatibility_and_migration",
+    "security_and_permissions",
+    "evidence_and_verifiability",
+    "implementation_and_operations_cost",
+    "future_evolution"
+  ],
+  "comparison_audit": {
+    "audit_id": "mattpocock-skills-2ab9580-for-xiaoh-3.1.2",
+    "target_version": "3.1.2",
+    "audited": true,
+    "fixed_source_commit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
+    "expected_counts": {
+      "replace": 0,
+      "adapt_and_add": 9,
+      "absorb_method": 6,
+      "exclude": 7
+    },
+    "future_source_policy": {
+      "new_audit_required": true,
+      "counts_must_be_recomputed": true,
+      "prior_zero_replacement_count_is_not_inherited": true
+    }
+  },
+  "replacement_policy": {
+    "hard_gates": [
+      "compatibility",
+      "security",
+      "permissions",
+      "evidence"
+    ],
+    "minimum_confirmed_product_benefits": 1
+  },
+  "decision_evidence": {
+    "ask-matt": {"status": "absorbed_and_contract_tested", "evidence_basis": "Upstream flow map compared with xiaoh-core lifecycle ownership."},
+    "code-review": {"status": "excluded", "evidence_basis": "XiaoH 3.1.2 intentionally has no formal code-review capability; deterministic verification remains authoritative."},
+    "codebase-design": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, governance contract, and isolated forward test."},
+    "diagnosing-bugs": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, diagnosis-only boundary, and isolated forward test."},
+    "domain-modeling": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, requirement authority boundary, and isolated forward test."},
+    "grill-with-docs": {"status": "absorbed_and_contract_tested", "evidence_basis": "Questioning and vocabulary methods mapped to existing requirement owners."},
+    "implement": {"status": "absorbed_and_contract_tested", "evidence_basis": "Vertical TDD method mapped to xiaoh-core without automatic commit authority."},
+    "improve-codebase-architecture": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, offline report boundary, and isolated forward test."},
+    "prototype": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, isolated-write boundary, and isolated forward test."},
+    "research": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, primary-source discipline, and isolated forward test."},
+    "resolving-merge-conflicts": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, non-destructive Git boundary, and isolated forward test."},
+    "setup-matt-pocock-skills": {"status": "excluded", "evidence_basis": "Would introduce a competing tracker and Workspace fact source."},
+    "tdd": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, accepted-scope boundary, and isolated forward test."},
+    "to-spec": {"status": "absorbed_and_contract_tested", "evidence_basis": "Conversation synthesis mapped to Spec+RFC without bypassing readiness gates."},
+    "to-tickets": {"status": "absorbed_and_contract_tested", "evidence_basis": "Task slicing methods mapped to OpenSpec without a competing state machine."},
+    "triage": {"status": "excluded", "evidence_basis": "External issue and pull-request mutations are outside XiaoH core ownership."},
+    "wayfinder": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, authority-preserving decision map, and isolated forward test."},
+    "grill-me": {"status": "excluded", "evidence_basis": "General non-code questioning conflicts with XiaoH interaction defaults."},
+    "grilling": {"status": "absorbed_and_contract_tested", "evidence_basis": "Scenario progression retained only for explicit stress testing or real blockers."},
+    "handoff": {"status": "excluded", "evidence_basis": "Host continuation and context compaction already own handoff."},
+    "teach": {"status": "excluded", "evidence_basis": "General teaching is outside the governed engineering release."},
+    "writing-great-skills": {"status": "excluded", "evidence_basis": "The Codex skill-creator system skill is the authoritative creation workflow."}
+  },
+  "decisions": [
+    {
+      "skill": "ask-matt",
+      "decision": "absorb_method",
+      "target": "skills/xiaoh-core/SKILL.md",
+      "reason": "Absorb the clear main-flow map without replacing XiaoH intent, recall, requirement, delegation, and closeout gates."
+    },
+    {
+      "skill": "code-review",
+      "decision": "exclude",
+      "reason": "XiaoH 3.1.2 removes formal code-review workflows and retains deterministic verification instead."
+    },
+    {
+      "skill": "codebase-design",
+      "decision": "adapt_and_add",
+      "files": [
+        "DEEPENING.md",
+        "DESIGN-IT-TWICE.md",
+        "SKILL.md"
+      ],
+      "upstream_aggregate_sha256": "eb0921d92984b430750d428d7161272da87e6a1585c88dbc67844d719694925c",
+      "adapted_aggregate_sha256": "6d5e4ec233c7261dc54ede630ac46591678ac376fea9113a7543fc35aaa428e0",
+      "reason": "Adds deep-module vocabulary; parallel design alternatives now defer to XiaoH delegation authority."
+    },
+    {
+      "skill": "diagnosing-bugs",
+      "decision": "adapt_and_add",
+      "files": [
+        "SKILL.md",
+        "scripts/hitl-loop.template.sh"
+      ],
+      "upstream_aggregate_sha256": "22a99713ed2896d3b4ad315a12cbb5f461a024e0dc14955891d39e850c9522d2",
+      "adapted_aggregate_sha256": "3cbae6cc489675c61cb8e345ff4f8772afdcbde2b597b7ca3dd8c600d30b2f06",
+      "reason": "Adds a tight feedback-loop discipline while preserving diagnosis-only scope and production permission boundaries."
+    },
+    {
+      "skill": "domain-modeling",
+      "decision": "adapt_and_add",
+      "files": [
+        "ADR-FORMAT.md",
+        "CONTEXT-FORMAT.md",
+        "SKILL.md"
+      ],
+      "upstream_aggregate_sha256": "d0fd29934f2c3b3f4c93497b9fb481da82f562e0ee7b52316a776d0c2ad34830",
+      "adapted_aggregate_sha256": "c1edddb240951cd96a7267ffa2f1d06eff13d2f1d38b364d1147be58348d6de7",
+      "reason": "Adds scenario-based language sharpening while preserving Workspace, recall, confirmation, and requirement-baseline ownership."
+    },
+    {
+      "skill": "grill-with-docs",
+      "decision": "absorb_method",
+      "target": "skills/spec-rfc/SKILL.md and skills/domain-modeling/SKILL.md",
+      "reason": "Absorb evidence synchronization and precise scenario questions without making relentless questioning the default."
+    },
+    {
+      "skill": "implement",
+      "decision": "absorb_method",
+      "target": "skills/xiaoh-core/SKILL.md",
+      "reason": "Absorb vertical TDD without automatic commits or a parallel delivery gate."
+    },
+    {
+      "skill": "improve-codebase-architecture",
+      "decision": "adapt_and_add",
+      "files": [
+        "HTML-REPORT.md",
+        "SKILL.md"
+      ],
+      "upstream_aggregate_sha256": "dd64bcc0abd45cd072e5978a6ae0a3d4e0a964fa456e5378151b0c313d832b0e",
+      "adapted_aggregate_sha256": "6e63652eb14dcf7f68b86f8bc2f6001590d026fa77cc73f7c8d7e6bb50c09b2e",
+      "reason": "Adds focused architecture scanning and offline visual reports without unauthorized delegation or CDN dependencies."
+    },
+    {
+      "skill": "prototype",
+      "decision": "adapt_and_add",
+      "files": [
+        "LOGIC.md",
+        "SKILL.md",
+        "UI.md"
+      ],
+      "upstream_aggregate_sha256": "acc61b14f6c37d0321f1c5c0ccecec23521e01ac2e96a28afb0bb1fad4328e29",
+      "adapted_aggregate_sha256": "24f5e3fdb2165d7aa26d2155f6d1766abbec54a54ef9f26ad2eef0d1c3a11468",
+      "reason": "Adds question-driven throwaway prototypes while requiring isolated writes and separately authorized Git actions."
+    },
+    {
+      "skill": "research",
+      "decision": "adapt_and_add",
+      "files": [
+        "SKILL.md"
+      ],
+      "upstream_aggregate_sha256": "6698b44d94e85d06ff92588ea5205554b973b2b23d3d1ea9a0148a3ce6655d2e",
+      "adapted_aggregate_sha256": "2240568e208116488f210250c5c5de15e169592caae21f3ae5c64d07b472bf07",
+      "reason": "Adds primary-source research without assuming background delegation or repository writes."
+    },
+    {
+      "skill": "resolving-merge-conflicts",
+      "decision": "adapt_and_add",
+      "files": [
+        "SKILL.md"
+      ],
+      "upstream_aggregate_sha256": "96aca5d1519714ae2e2695e7ea9f3caff0de8836010e14411f4d28d6d5e8e515",
+      "adapted_aggregate_sha256": "4b5385b34b9509498bb921a22fe1ab0ad8e6fe711fd2f423cd12f50030830db2",
+      "reason": "Adds intent-preserving hunk resolution without automatic stage, commit, rebase continuation, push, or abort."
+    },
+    {
+      "skill": "setup-matt-pocock-skills",
+      "decision": "exclude",
+      "reason": "Would create a second tracker and Workspace fact source."
+    },
+    {
+      "skill": "tdd",
+      "decision": "adapt_and_add",
+      "files": [
+        "SKILL.md",
+        "mocking.md",
+        "tests.md"
+      ],
+      "upstream_aggregate_sha256": "76cc3e435800682c53cf5869c748976320e278a4d3e19abf79fe5f974671addf",
+      "adapted_aggregate_sha256": "877850b4c56652e3d40511177406ce7639e6637e3816a9c5649ae46bbfef2991",
+      "reason": "Adds vertical red-green slices and public-seam tests without shifting technical seam selection to the user or replacing deterministic verification."
+    },
+    {
+      "skill": "to-spec",
+      "decision": "absorb_method",
+      "target": "skills/spec-rfc/SKILL.md",
+      "reason": "Absorb direct conversation synthesis without bypassing Spec+RFC readiness and OpenSpec traceability."
+    },
+    {
+      "skill": "to-tickets",
+      "decision": "absorb_method",
+      "target": "skills/spec-rfc/references/openspec-handoff.md",
+      "reason": "Absorb tracer bullets, blocking edges, and blockers-first ordering into OpenSpec tasks without creating another task state machine."
+    },
+    {
+      "skill": "triage",
+      "decision": "exclude",
+      "reason": "Its external issue and pull-request label state machine is outside the XiaoH core scope."
+    },
+    {
+      "skill": "wayfinder",
+      "decision": "adapt_and_add",
+      "files": [
+        "SKILL.md"
+      ],
+      "upstream_aggregate_sha256": "2e68a02c970281a97d51762f8b5639649f0a1cfe1b8cc2b6fe16e1a549cb6837",
+      "adapted_aggregate_sha256": "b288836c937c73444f11aacc4513127aac51043fbb52182bf2ea47375f45de6e",
+      "reason": "Adds fog, decision tickets, blockers, and frontier navigation while keeping XiaoH and Playbook task facts authoritative."
+    },
+    {
+      "skill": "grill-me",
+      "decision": "exclude",
+      "reason": "It is a non-code general capability and its default interaction conflicts with XiaoH's result-changing-question rule."
+    },
+    {
+      "skill": "grilling",
+      "decision": "absorb_method",
+      "target": "skills/spec-rfc/SKILL.md and skills/domain-modeling/SKILL.md",
+      "reason": "Absorb scenario progression and one-question-at-a-time only for explicit stress testing or real blockers."
+    },
+    {
+      "skill": "handoff",
+      "decision": "exclude",
+      "reason": "Codex task continuation and context compaction already own this responsibility."
+    },
+    {
+      "skill": "teach",
+      "decision": "exclude",
+      "reason": "General teaching is outside XiaoH engineering coordination."
+    },
+    {
+      "skill": "writing-great-skills",
+      "decision": "exclude",
+      "reason": "The system skill-creator already owns Skill creation and validation with Codex-specific constraints."
+    }
+  ]
+}

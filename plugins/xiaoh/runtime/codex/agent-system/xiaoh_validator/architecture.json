@@ -1,0 +1,18 @@
+{
+  "schema_version": "xiaoh-validator-architecture/v2",
+  "production_facade": "../validate.py",
+  "layers": ["runtime", "schemas", "policy", "diagnostics", "evidence", "requirements", "delegation", "task_context", "run_record", "global_validation", "service"],
+  "allowed_edges": {
+    "schemas": [],
+    "runtime": [],
+    "policy": ["schemas"],
+    "diagnostics": [],
+    "evidence": ["runtime", "policy", "diagnostics"],
+    "requirements": ["runtime", "policy", "diagnostics", "evidence"],
+    "delegation": ["runtime", "policy", "diagnostics", "evidence"],
+    "task_context": ["runtime", "policy", "diagnostics", "evidence", "requirements", "delegation"],
+    "run_record": ["runtime", "policy", "diagnostics", "evidence", "delegation"],
+    "global_validation": ["runtime", "policy", "diagnostics", "evidence", "delegation", "task_context", "run_record"],
+    "service": ["runtime", "diagnostics", "evidence", "delegation", "task_context", "run_record", "global_validation"]
+  }
+}

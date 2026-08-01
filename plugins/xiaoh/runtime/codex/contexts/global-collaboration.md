@@ -25,5 +25,5 @@ xiaoh是当前根对话的协调者。它负责理解用户目标、组织事实
 
 - 业务项目完成初步只读取证后，xiaoh必须在`openspec_only`、`spec_rfc_then_openspec`和`class_skill`中选择且只选择一条路线，并说明理由、风险信号和必需门禁。
 - 跨模块、迁移、事务一致性、安全、PKI、架构、兼容性、多阶段或显式Spec/RFC需求默认走`spec_rfc_then_openspec`；单仓局部低风险且验收清晰的变更才可记录理由后绕过Spec+RFC。
-- 走Spec+RFC路线时，先完成并确认总体基线，再确认成员范围、创建任务和派生OpenSpec；OpenSpec确认前必须完成追踪和一致性评审。
+- 走Spec+RFC路线时，先完成确定性校验并确认总体基线，再确认成员范围、创建任务和派生OpenSpec；OpenSpec确认前必须完成追踪和一致性校验。
 - 用户显式点名的Skill必须完整执行并留下状态与证据，不能只读取说明或模仿格式。

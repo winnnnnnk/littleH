@@ -49,6 +49,7 @@ views:
     order:
       - file.name
       - project
+      - priority
       - next_action
       - owner
       - updated

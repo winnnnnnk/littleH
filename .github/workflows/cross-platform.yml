@@ -37,12 +37,14 @@ jobs:
             plugins/xiaoh/runtime/codex/agent-system/validate.py \
             plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py \
             plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py \
-            plugins/xiaoh/runtime/codex/hooks/verify_agent_hook_runtime.py
+            plugins/xiaoh/runtime/codex/hooks/verify_agent_hook_runtime.py \
+            tests/test_clean_break_312.py
           for file in \
             .agents/plugins/marketplace.json \
             plugins/xiaoh/.codex-plugin/plugin.json \
             plugins/xiaoh/dependencies.json \
             plugins/xiaoh/managed-automations.json \
+            plugins/xiaoh/install-manifest.json \
             plugins/xiaoh/runtime/codex/agent-system/*.json; do
             python -m json.tool "$file" >/dev/null
           done
@@ -175,3 +177,38 @@ jobs:
             exit 1
           }
           exit 0
+
+  quality-report:
+    name: Coverage / typing / lint report
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install development-only quality tools
+        run: python -m pip install "coverage>=7,<8" "mypy>=1,<2" "ruff>=0.11,<1"
+
+      - name: Coverage report
+        run: |
+          python -m coverage run --branch -m unittest discover -s tests
+          python -m coverage report
+
+      - name: Static typing report
+        continue-on-error: true
+        run: |
+          python -m mypy \
+            --ignore-missing-imports \
+            --allow-untyped-defs \
+            plugins/xiaoh/scripts/xiaoh.py \
+            plugins/xiaoh/runtime/codex/agent-system \
+            plugins/xiaoh/runtime/codex/hooks
+
+      - name: Lint report
+        continue-on-error: true
+        run: python -m ruff check plugins/xiaoh tests

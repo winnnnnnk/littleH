@@ -55,25 +55,21 @@
     "scope_reduction": {
       "present": false,
       "basis": "not_applicable",
-      "evidence": [],
-      "independent_review_status": "not_required"
+      "evidence": []
     },
     "compatibility_default": {
       "present": false,
       "target": null,
       "value": null,
       "basis": "not_applicable",
-      "evidence": [],
-      "independent_review_status": "not_required"
+      "evidence": []
     }
   },
   "routing": {
     "root_agent": "xiaoh",
     "delegated_agents": [],
     "delegation_policies": {},
-    "selection_reason": "低风险全局配置核对由协调者直接完成，不需要专业角色",
-    "independent_review_required": false,
-    "independent_review_agents": []
+    "selection_reason": "低风险全局配置核对由协调者直接完成"
   },
   "playbook": {
     "managed": false,

@@ -43,21 +43,21 @@ Allow read-only code/document exploration and candidate impact analysis before b
 For `spec_rfc_then_openspec`:
 
 1. Execute `$spec-rfc` completely from the root thread.
-2. Run `$xiaoh:spec-rfc-reviewer` against the complete current revision. Absorb findings, revise, and repeat until it grants `OPENSPEC_READY`.
-3. Run the `spec_rfc_confirmation` validator action, then present the reviewed Spec+RFC to the user for confirmation.
+2. Run deterministic structure, completeness, contradiction, boundary, and traceability checks against the complete current revision. Fix failures until all checks pass.
+3. Run the `spec_rfc_confirmation` validator action, then present the validated Spec+RFC to the user for confirmation.
 4. Only then confirm final member scope and create the workspace task.
 5. Derive each member OpenSpec from the accepted Spec+RFC and trace FR/NFR through requirements/scenarios, tasks, implementation, and verification.
-6. Execute `$xiaoh:spec-rfc-openspec-consistency-review`. Absorb findings, revise OpenSpec, and repeat until it returns `PASS` for the current Spec+RFC revision.
+6. Validate that OpenSpec completely traces the confirmed Spec+RFC revision without semantic drift; fix deterministic failures until it passes.
 7. Confirm OpenSpec and start implementation only after the applicable gate passes.
 
-These are two separate lifecycle reviews. The source-quality review cannot replace the OpenSpec consistency review, and the consistency review cannot run before OpenSpec artifacts exist.
+Spec+RFC validation and OpenSpec traceability validation are separate deterministic gates. The latter cannot run before OpenSpec artifacts exist.
 
 Record explicitly requested Skills as started, completed, validated, and confirmed. Reading or imitating a Skill is not completion.
 
 ## Recover omissions and changes
 
-- If a task or OpenSpec exists without a required Spec+RFC, set `retroactive_normalization.required=true`, pause approval and implementation, reconstruct the baseline from existing evidence, confirm it, review consistency, then mark normalization completed.
-- If overall business, architecture, data, or security semantics change, increment the Spec+RFC revision and reset affected OpenSpec consistency to `pending`.
+- If a task or OpenSpec exists without a required Spec+RFC, set `retroactive_normalization.required=true`, pause approval and implementation, reconstruct and confirm the baseline, validate traceability, then mark normalization completed.
+- If overall business, architecture, data, or security semantics change, increment the Spec+RFC revision and reset affected OpenSpec validation to `pending`.
 - Do not reset Spec+RFC confirmation when only task status, implementation detail, or verification evidence changes.
 
 Before a governed action, run the installed validator with `--requirement-gate <task-context> --action <action>` and stop on failure. Governed actions include final member confirmation, task creation, OpenSpec authoring and confirmation, task start, and implementation.
