@@ -88,7 +88,7 @@ Blocking edge: the affected public Hook or Validator entrypoint cannot switch un
 
 - [x] 9.1 Run the complete unit, contract, integration, temporary-root E2E, fault-injection, and idempotency suites locally without touching real user paths. `[all capabilities]`
 - [x] 9.2 Make syntax, type checking, lint, contract, and test failures blocking in CI; remove applicable `continue-on-error` quality gates. `[runtime-architecture; runtime-cli]`
-- [ ] 9.3 Run the supported macOS, Windows, and Python matrix, including entrypoints, path behavior, file occupancy, symlinks, and line-ending cases. `[runtime-architecture: Preserve cross-platform behavior with minimal dependencies]`
+- [x] 9.3 Run the supported macOS, Windows, and Python matrix, including entrypoints, path behavior, file occupancy, symlinks, and line-ending cases. `[runtime-architecture: Preserve cross-platform behavior with minimal dependencies]`
 - [x] 9.4 Verify every Spec+RFC FR, NFR, interface boundary, failure behavior, and non-goal has implementation and test evidence. `[source revision 4]`
 - [x] 9.5 Add contract tests for execution lanes, direct changes, Agent benefit thresholds, complete failure-set guidance, and verification evidence summaries. `[development-flow]`
 
@@ -96,6 +96,6 @@ Blocking edge: the affected public Hook or Validator entrypoint cannot switch un
 
 - [x] 10.1 Switch every public entrypoint to the new implementation only after its baseline, integration, and negative tests pass. `[runtime-architecture: Remove the legacy production implementation]`
 - [x] 10.2 Delete the old runtime modules, compatibility branches, dead code, and removed review assets; verify no callsite remains. `[runtime-architecture: Remove the legacy production implementation]`
-- [ ] 10.3 Re-run the complete deterministic and cross-platform acceptance suite against the single remaining implementation. `[all capabilities]`
+- [x] 10.3 Re-run the complete deterministic and cross-platform acceptance suite against the single remaining implementation. `[all capabilities]`
 - [x] 10.4 Produce the XiaoH 4.0.0 installable code-candidate report with version, evidence, known limits, and explicit statements that local installation, restart, Hook trust, and runtime verification were not performed. `[runtime-cli: Label repository output as a code candidate]`
 - [x] 10.5 Stop after candidate acceptance; do not run real setup, update, installation, restart, trust, or runtime Doctor. `[transactional-installation: Keep repository development isolated from the real machine]`

@@ -57,22 +57,24 @@ python3 plugins/xiaoh/scripts/xiaoh.py companions --json
 - `companions`：通过；28 个捆绑 Skill、5 个专业 Agent 和 mattpocock/skills `0/10/8/4` 决策基线一致。
 - JSON、Shell、Git diff 和 GitHub Actions YAML 静态检查：通过。
 - OpenSpec CLI 1.4.1 严格校验：`xiaoh-400-runtime-rewrite` 有效。
-- OpenSpec 实施任务：64 项中 62 项已完成；只保留远端跨平台矩阵及其最终复跑两项。
-- macOS、Windows、Python 3.9 和 3.11：CI 已配置为阻断矩阵，本地阶段未运行远端矩阵。
-- 类型检查、lint 和 coverage：CI 已改为阻断，不再忽略失败。本地环境未安装这些开发工具，因此最终状态以 CI 为准。
-- PowerShell 入口解析：Windows CI 已配置为阻断；本机没有 PowerShell，未做本地解析。
+- OpenSpec 实施任务：64 项全部完成。
+- 代码候选提交：`ef1616990d0b457ab065fab835302c9c7910e6e0`。
+- GitHub Actions 运行 `30697506958`：5 个阻断任务全部通过。
+- macOS、Windows、Python 3.9 和 3.11：跨平台矩阵全部通过。
+- 类型检查、lint 和 coverage：全部通过，没有 `continue-on-error` 或人工忽略项。
+- PowerShell 安装入口：已在 Windows 3.9 和 3.11 环境完成解析与隔离安装验证。
 - Skill Creator 标准脚本：本地系统 Python 缺少 PyYAML，未安装额外依赖。仓库内无依赖 Skill 治理已验证 frontmatter、路径、来源、许可证和摘要。
 
 ## 已知限制和后续人工边界
 
-正式版本从当前代码候选进入本机安装前，必须完成源码基线固定、远端质量门禁、真实只读 Plan、恢复清单、用户授权、重启信任和运行时验收。完整步骤见 [XiaoH 4.0.0 正式版本安装准入清单](xiaoh-4.0.0-formal-install-readiness.md)。
+正式版本从当前代码候选进入本机安装前，还需固定最终安装来源，并完成真实只读 Plan、恢复清单、用户授权、重启信任和运行时验收。完整步骤见 [XiaoH 4.0.0 正式版本安装准入清单](xiaoh-4.0.0-formal-install-readiness.md)。
 
 - 运行时激活只能在用户安装后确认。需要重启 Codex，由用户审阅并信任 Hook，再从新根任务运行 `doctor --runtime`。
 - 仓库候选的 `SubagentStart` 输出协议和完整绑定、回执、转录证明生命周期已经通过隔离测试；`additionalContext` 是否由当前 Codex 进程实际传入专业 Agent，仍需在授权安装、重启和信任后通过一次真实委派验收。
 - 真实自动化的创建和更新由 Codex 支持的自动化工具负责。XiaoH 只读取并绑定现有任务。
 - 配套插件和外部能力只提供建议与状态，不由 XiaoH 自动安装。
 - Playbook CLI 的安装、升级、降级、重装、链接和版本切换始终由用户人工完成。
-- 在跨平台 CI、类型检查或 lint 通过之前，候选不能标记为最终发布包。
+- 当前候选已通过代码层面的阻断门禁，但在真实安装、重启、Hook 信任和运行时验收完成前，不能标记为本机正式激活。
 
 ## 停止点
 
