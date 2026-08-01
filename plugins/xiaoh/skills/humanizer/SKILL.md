@@ -1,12 +1,10 @@
 ---
 name: humanizer
-version: 1.0.0
 description: >-
   Edit user-facing prose so it reads naturally without changing its meaning.
   Use for README files, guides, explanations, proposals, summaries, handoffs,
   and other documents written for people. Do not use it to rewrite code,
   commands, schemas, evidence, machine-readable files, or exact contract text.
-license: MIT
 ---
 
 # Humanizer

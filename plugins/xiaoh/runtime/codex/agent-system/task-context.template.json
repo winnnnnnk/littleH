@@ -24,6 +24,7 @@
       "__CODEX_HOME__/agents",
       "__OBSIDIAN_VAULT__/90-个人系统/Agent协作角色.md"
     ],
+    "preexisting_changes": [],
     "prohibited_actions": [
       "修改角色权限",
       "提交或推送任何仓库",
@@ -34,12 +35,16 @@
     {
       "path": "__CODEX_HOME__/AGENTS.md",
       "purpose": "全局 Agent 公共契约",
-      "required": true
+      "required": true,
+      "kind": "file",
+      "sha256": null
     },
     {
       "path": "__CODEX_HOME__/agents",
       "purpose": "角色配置事实源",
-      "required": true
+      "required": true,
+      "kind": "directory",
+      "sha256": null
     }
   ],
   "confirmed_decisions": [
@@ -71,6 +76,31 @@
     "delegation_policies": {},
     "selection_reason": "低风险全局配置核对由协调者直接完成"
   },
+  "execution": {
+    "lane": "fast",
+    "selection_reason": "范围局部、风险低、验收明确且不改变持久契约",
+    "verification_scope": "impact_driven",
+    "impact_surfaces": [
+      "全局配置与角色目录一致性"
+    ],
+    "verification_profile": {
+      "required_categories": [
+        "contract"
+      ],
+      "not_applicable": []
+    },
+    "effects": {
+      "level": "none",
+      "authorized": false,
+      "evidence": null
+    },
+    "delegation": {
+      "decision": "direct",
+      "authorized": false,
+      "benefits": [],
+      "reason": "任务范围单一，委派不能带来实质收益"
+    }
+  },
   "playbook": {
     "managed": false,
     "workspace_id": null,
@@ -90,8 +120,11 @@
   ],
   "verification": [
     {
+      "id": "global-config-contract",
+      "category": "contract",
       "command": "python3 __CODEX_HOME__/agent-system/validate.py",
-      "expected": "exit code 0"
+      "expected": "exit code 0",
+      "required": true
     }
   ],
   "output_contract": {

@@ -1,5 +1,5 @@
 {
-  "schema_version": "xiaoh-third-party-skills/v1",
+  "schema_version": "xiaoh-third-party-skills/v2",
   "source": {
     "repository": "https://github.com/mattpocock/skills",
     "commit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
@@ -19,15 +19,15 @@
     "future_evolution"
   ],
   "comparison_audit": {
-    "audit_id": "mattpocock-skills-2ab9580-for-xiaoh-3.1.2",
-    "target_version": "3.1.2",
+    "audit_id": "mattpocock-skills-2ab9580-for-xiaoh-4.0.0",
+    "target_version": "4.0.0",
     "audited": true,
     "fixed_source_commit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
     "expected_counts": {
       "replace": 0,
-      "adapt_and_add": 9,
-      "absorb_method": 6,
-      "exclude": 7
+      "adapt_and_add": 10,
+      "absorb_method": 8,
+      "exclude": 4
     },
     "future_source_policy": {
       "new_audit_required": true,
@@ -46,7 +46,7 @@
   },
   "decision_evidence": {
     "ask-matt": {"status": "absorbed_and_contract_tested", "evidence_basis": "Upstream flow map compared with xiaoh-core lifecycle ownership."},
-    "code-review": {"status": "excluded", "evidence_basis": "XiaoH 3.1.2 intentionally has no formal code-review capability; deterministic verification remains authoritative."},
+    "code-review": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed-source two-axis review was adapted to a user-explicit, fixed-point, single-pass, non-mutating XiaoH capability."},
     "codebase-design": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, governance contract, and isolated forward test."},
     "diagnosing-bugs": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, diagnosis-only boundary, and isolated forward test."},
     "domain-modeling": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, requirement authority boundary, and isolated forward test."},
@@ -64,9 +64,9 @@
     "wayfinder": {"status": "adapted_and_forward_tested", "evidence_basis": "Fixed upstream files, adapted digest, authority-preserving decision map, and isolated forward test."},
     "grill-me": {"status": "excluded", "evidence_basis": "General non-code questioning conflicts with XiaoH interaction defaults."},
     "grilling": {"status": "absorbed_and_contract_tested", "evidence_basis": "Scenario progression retained only for explicit stress testing or real blockers."},
-    "handoff": {"status": "excluded", "evidence_basis": "Host continuation and context compaction already own handoff."},
+    "handoff": {"status": "absorbed_and_contract_tested", "evidence_basis": "Artifact linking, redaction, unresolved work, and suggested-Skill behavior are absorbed into existing XiaoH handoff and recall ownership."},
     "teach": {"status": "excluded", "evidence_basis": "General teaching is outside the governed engineering release."},
-    "writing-great-skills": {"status": "excluded", "evidence_basis": "The Codex skill-creator system skill is the authoritative creation workflow."}
+    "writing-great-skills": {"status": "absorbed_and_contract_tested", "evidence_basis": "Responsibility, invocation, completion, single-source, and progressive-disclosure rules are absorbed into XiaoH Skill quality governance."}
   },
   "decisions": [
     {
@@ -77,8 +77,14 @@
     },
     {
       "skill": "code-review",
-      "decision": "exclude",
-      "reason": "XiaoH 3.1.2 removes formal code-review workflows and retains deterministic verification instead."
+      "decision": "adapt_and_add",
+      "files": [
+        "SKILL.md",
+        "agents/openai.yaml"
+      ],
+      "upstream_aggregate_sha256": "80a206dcc243da0c52bfb8264faaa3738fe7c16ebcd355d54530b376d64b06e2",
+      "adapted_aggregate_sha256": "64b2725bb1f9eff024905d3ce67827d7c902373fda23f261ea7648188f56add0",
+      "reason": "Adds an explicit single-pass two-axis review while removing automatic sub-agent fan-out, repair, re-review, Campaign, setup dependency, and gate mutation."
     },
     {
       "skill": "codebase-design",
@@ -227,8 +233,9 @@
     },
     {
       "skill": "handoff",
-      "decision": "exclude",
-      "reason": "Codex task continuation and context compaction already own this responsibility."
+      "decision": "absorb_method",
+      "target": "skills/xiaoh-project-recall/SKILL.md and skills/xiaoh-core/SKILL.md",
+      "reason": "Absorb artifact links, redaction, unresolved work, and suggested Skills without creating a second project-history source."
     },
     {
       "skill": "teach",
@@ -237,8 +244,9 @@
     },
     {
       "skill": "writing-great-skills",
-      "decision": "exclude",
-      "reason": "The system skill-creator already owns Skill creation and validation with Codex-specific constraints."
+      "decision": "absorb_method",
+      "target": "xiaoh_runtime/capabilities/skills.py",
+      "reason": "Absorb responsibility, invocation, completion, single-source, and progressive-disclosure quality rules while retaining the system skill-creator as the creation workflow."
     }
   ]
 }

@@ -1,6 +1,6 @@
 ---
 name: xiaoh-knowledge-promotion
-description: "Promote a user-confirmed, evidence-backed XiaoH knowledge candidate into exactly one durable Obsidian scope: project knowledge, domain knowledge, reusable method, or personal system."
+description: "Promote a user-confirmed, evidence-backed XiaoH knowledge candidate into exactly one durable Obsidian scope. Use when the user accepts a candidate for project knowledge, domain knowledge, a reusable method, or the personal system."
 ---
 
 # xiaoh知识晋升

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Review one fixed diff on standards and confirmed spec"
+  default_prompt: "Review this fixed diff once, separating standards findings from confirmed-spec findings."

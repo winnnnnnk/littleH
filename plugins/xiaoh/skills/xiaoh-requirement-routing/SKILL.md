@@ -19,14 +19,17 @@ Require task-context schema 1.6 with `memory_recall.status=completed`. The recal
 the resolved Workspace, contain current fact sources, and record any material history-versus-current
 conflicts. Do not route from daily digests alone or treat recalled Obsidian content as permission.
 
-Return all four fields:
+Return all five fields:
 
 ```yaml
-route: openspec_only | spec_rfc_then_openspec | class_skill
+route: direct_change | openspec_only | spec_rfc_then_openspec | class_skill
 reason: <evidence-based reason>
 risk_signals: []
 required_gates: []
+execution_lane: fast | standard | high_risk
 ```
+
+Choose `direct_change` only when all are true: the requested code outcome and acceptance are already clear, the change is low-risk, local and reversible, it introduces no durable business behavior or contract, it needs no new Spec/OpenSpec decision, and impact-driven deterministic verification can prove it. Record a non-empty bypass reason. A bug fix must first have a reproducible symptom or equivalent failing check. Escalate to `openspec_only` as soon as implementation discovers a semantic choice.
 
 Choose `spec_rfc_then_openspec` when any signal exists: multiple changes, cross-stage/module/repository scope, migration or compatibility, transaction/consistency/idempotency/recovery, permission/security/sensitive data/PKI/key semantics, architecture/model/interface changes, multiple viable designs, phased delivery, an explicit design/Spec/RFC request, or explicit `$spec-rfc` invocation.
 
@@ -34,11 +37,13 @@ Choose `openspec_only` only when all are true: one repository, local change, cle
 
 Choose `class_skill` for governed A/B/C formal artifacts. The class artifact remains authoritative; use Spec+RFC only for analysis or gap filling unless the class workflow explicitly selects it.
 
+Choose the execution lane independently from the artifact route. `direct_change` requires `fast`; `spec_rfc_then_openspec` normally implies `standard` or `high_risk`. Security, permissions, PKI/key material, migration, transaction, compatibility, cross-repository, architecture, or irreversible work requires `high_risk`. Record Agent use separately; a lane never authorizes delegation.
+
 `requirement-structuring` may clean up ambiguous input before routing but never counts as the accepted baseline.
 
 ## Enforce progression
 
-Allow read-only code/document exploration and candidate impact analysis before baseline confirmation.
+Allow read-only code/document exploration and candidate impact analysis before baseline confirmation. `direct_change` may proceed without creating an artifact only while its low-risk/no-new-semantics proof remains true.
 
 For `spec_rfc_then_openspec`:
 

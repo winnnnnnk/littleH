@@ -1,11 +1,12 @@
 # XiaoH Agent System
 
-XiaoH 3.1.2 uses a small deterministic governance runtime:
+XiaoH 4.0.0 uses a small deterministic governance runtime:
 
-- `task-context.template.json`: schema 1.6 task authority, intent, scope, requirement state, delegation policy, acceptance, and verification.
-- `run-record.template.json`: schema 1.2 execution and verification evidence.
+- `task-context.template.json`: schema 1.6 task authority, source digests, scope, effect authorization, requirement state, delegated read/write policy, acceptance, and verification profile.
+- `run-record.template.json`: schema 1.2 command evidence, root scope proof, execution, and verification results.
 - `validate.py`: validates global installation, task contexts, requirement gates, one-time execution bindings, run records, and task closure.
 - `playbook_adapter.py`: binds managed execution to current read-only Playbook worker and task-status evidence.
+- `../hooks/guard_task_writes.py`: prepares and attests short-lived root execution bindings and composes repository scope with the Vault guard.
 - `routing-cases.json`: representative specialist routing examples.
 - `agent-stages.json` and `evolution-policy.json`: evidence counters and human-controlled Agent evolution.
 

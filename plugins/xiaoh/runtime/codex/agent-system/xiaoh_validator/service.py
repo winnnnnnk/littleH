@@ -1,8 +1,12 @@
 """Command-line service for XiaoH deterministic validation."""
 
-from xiaoh_validator.runtime import *
+import argparse
+import copy
+import json
+from pathlib import Path
+
 from xiaoh_validator.diagnostics import Report
-from xiaoh_validator.evidence import *
+from xiaoh_validator.evidence import canonical_json_hash, load_json, migrate_task_context_15_to_16
 from xiaoh_validator.task_context import validate_task_context, validate_requirement_gate
 from xiaoh_validator.run_record import validate_run_record
 from xiaoh_validator.delegation import validate_execution_binding, closure_rejection_reasons

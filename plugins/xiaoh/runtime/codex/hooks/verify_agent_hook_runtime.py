@@ -180,6 +180,40 @@ def query_hooks_with_retry(
     )
 
 
+def verify_subagent_start_protocol(codex_home: Path) -> None:
+    hook = codex_home / "hooks/block_reserved_root_agent.py"
+    environment = {**os.environ, "CODEX_HOME": str(codex_home)}
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(hook), "--subagent-start"],
+            input="[]",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=20,
+            check=False,
+            env=environment,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("SubagentStart Hook 协议探针超时") from exc
+    if completed.returncode:
+        raise RuntimeError("SubagentStart Hook 协议探针执行失败")
+    try:
+        response = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("SubagentStart Hook 未返回有效 JSON") from exc
+    output = response.get("hookSpecificOutput")
+    if not isinstance(output, dict):
+        raise RuntimeError("SubagentStart Hook 缺少 hookSpecificOutput")
+    if output.get("hookEventName") != "SubagentStart":
+        raise RuntimeError(
+            "SubagentStart Hook 缺少 hookEventName=SubagentStart"
+        )
+    context = output.get("additionalContext")
+    if not isinstance(context, str) or not context.strip():
+        raise RuntimeError("SubagentStart Hook 缺少 additionalContext")
+
+
 def verify(codex_home: Path, cwd: Path) -> None:
     if os.environ.get("CODEX_SANDBOX"):
         raise RuntimeError(
@@ -194,7 +228,7 @@ def verify(codex_home: Path, cwd: Path) -> None:
 
     expected_source = (codex_home / "config.toml").resolve()
     delegation_scripts = [codex_home / "hooks/block_reserved_root_agent.py"]
-    vault_scripts = [codex_home / "hooks/guard_vault_writes.py"]
+    write_scripts = [codex_home / "hooks/guard_task_writes.py"]
     normalized_scripts = lambda paths: {
         candidate.replace("\\", "/").casefold()
         for path in paths
@@ -203,7 +237,7 @@ def verify(codex_home: Path, cwd: Path) -> None:
     hooks = [hook for item in result.get("data", []) for hook in item.get("hooks", [])]
     required = [
         ("Agent PreToolUse", {"preToolUse", "pre_tool_use"}, "^(Agent|spawn_agent)$", delegation_scripts, ()),
-        ("Vault PreToolUse", {"preToolUse", "pre_tool_use"}, "^(apply_patch|exec_command)$", vault_scripts, ()),
+        ("Root write PreToolUse", {"preToolUse", "pre_tool_use"}, "^(apply_patch|exec_command|write_stdin)$", write_scripts, ()),
         ("SubagentStart", {"subagentStart", "subagent_start"}, ".*", delegation_scripts, ("--subagent-start", "-subagentstart")),
         ("SubagentStop", {"subagentStop", "subagent_stop"}, ".*", delegation_scripts, ("--subagent-stop", "-subagentstop")),
     ]
@@ -228,6 +262,7 @@ def verify(codex_home: Path, cwd: Path) -> None:
         if not hook.get("currentHash"):
             raise RuntimeError(f"Codex hooks/list 未返回 {label} 当前哈希")
         hashes.append(f"{label}={hook['currentHash']}")
+    verify_subagent_start_protocol(codex_home)
     print("xiaoh运行时门禁已激活：" + ", ".join(hashes))
 
 

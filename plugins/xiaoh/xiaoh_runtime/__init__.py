@@ -1,6 +1,5 @@
-"""XiaoH modular local runtime.
+"""XiaoH 4.0.0 runtime public surface."""
 
-Public behavior is exposed through :mod:`xiaoh_runtime.cli`. Domain modules
-import lower-level dependencies directly so package import order cannot
-create a partially initialized runtime.
-"""
+from .interface.cli import main
+
+__all__ = ["main"]
