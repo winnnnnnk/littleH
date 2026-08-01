@@ -16,7 +16,7 @@ if ($LASTEXITCODE -ne 0) { throw "安装xiaoh Plugin失败" }
 
 $py = Get-Command py -ErrorAction SilentlyContinue
 $python = Get-Command python -ErrorAction SilentlyContinue
-if ($py) { & $py.Source -3 $Script setup --allow-degraded }
-elseif ($python) { & $python.Source $Script setup --allow-degraded }
+if ($py) { & $py.Source -3 $Script setup }
+elseif ($python) { & $python.Source $Script setup }
 else { throw "缺少Python 3" }
 if ($LASTEXITCODE -ne 0) { throw "初始化xiaoh运行环境失败" }

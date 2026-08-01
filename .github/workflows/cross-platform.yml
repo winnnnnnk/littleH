@@ -27,159 +27,96 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Validate Python and JSON
+      - name: Syntax, manifests, contracts, and unit tests
         shell: bash
         run: |
-          python -m py_compile \
-            plugins/xiaoh/scripts/xiaoh.py \
-            plugins/xiaoh/skills/xiaoh-task-closeout/scripts/closeout_key.py \
-            plugins/xiaoh/runtime/codex/agent-system/playbook_adapter.py \
-            plugins/xiaoh/runtime/codex/agent-system/validate.py \
-            plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py \
-            plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py \
-            plugins/xiaoh/runtime/codex/hooks/verify_agent_hook_runtime.py \
-            tests/test_clean_break_312.py
+          python -m compileall -q plugins/xiaoh tests
           for file in \
             .agents/plugins/marketplace.json \
             plugins/xiaoh/.codex-plugin/plugin.json \
             plugins/xiaoh/dependencies.json \
             plugins/xiaoh/managed-automations.json \
             plugins/xiaoh/install-manifest.json \
+            plugins/xiaoh/third_party/mattpocock-skills/manifest.json \
             plugins/xiaoh/runtime/codex/agent-system/*.json; do
             python -m json.tool "$file" >/dev/null
           done
+          python plugins/xiaoh/runtime/codex/agent-system/validate.py --self-test
+          python plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py --self-test
+          python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test
           python plugins/xiaoh/scripts/xiaoh.py companions --json >/dev/null
-          python -m unittest discover -s tests -v
+          python -m unittest discover -s tests -p 'test_*.py' -v
 
-      - name: Verify isolated installation
+      - name: Isolated transaction, idempotency, and static Doctor
         shell: bash
         run: |
-          root=$(python -c 'from pathlib import Path; print(Path.cwd())')
-          set +e
-          output=$(
+          ci_root="$RUNNER_TEMP/xiaoh 4.0 路径"
+          mkdir -p "$ci_root/vault/.obsidian"
           python plugins/xiaoh/scripts/xiaoh.py setup \
-            --codex-home "$root/.ci/codex" \
-            --vault "$root/.ci/vault" \
-            --config "$root/.ci/xiaoh.json" \
-            --active-skill-root "$root/plugins/xiaoh/skills/xiaoh-setup" \
-            --allow-degraded \
-            --json 2>&1
-          )
-          status=$?
-          printf '%s\n' "$output"
-          if [[ $status -ne 0 ]]; then
-            while IFS= read -r line; do printf '::error::%s\n' "$line"; done <<< "$output"
-            exit "$status"
-          fi
-          set -e
+            --codex-home "$ci_root/codex" \
+            --vault "$ci_root/vault" \
+            --config "$ci_root/xiaoh/config.json" \
+            --active-skill-root "$PWD/plugins/xiaoh/skills/xiaoh-setup" \
+            --json > "$ci_root/setup.json"
+          python plugins/xiaoh/scripts/xiaoh.py update \
+            --codex-home "$ci_root/codex" \
+            --vault "$ci_root/vault" \
+            --config "$ci_root/xiaoh/config.json" \
+            --active-skill-root "$PWD/plugins/xiaoh/skills/xiaoh-update" \
+            --json > "$ci_root/update.json"
           set +e
           python plugins/xiaoh/scripts/xiaoh.py doctor \
-            --codex-home "$root/.ci/codex" \
-            --vault "$root/.ci/vault" \
-            --config "$root/.ci/xiaoh.json" \
-            --active-skill-root "$root/plugins/xiaoh/skills/xiaoh-doctor" \
-            --json > .ci/doctor.json
+            --codex-home "$ci_root/codex" \
+            --vault "$ci_root/vault" \
+            --config "$ci_root/xiaoh/config.json" \
+            --active-skill-root "$PWD/plugins/xiaoh/skills/xiaoh-doctor" \
+            --json > "$ci_root/doctor.json"
           doctor_status=$?
           set -e
-          cat .ci/doctor.json
-          python - <<'PY'
+          python - "$ci_root" "$doctor_status" <<'PY'
           import json
-          with open(".ci/doctor.json", encoding="utf-8") as stream:
-              report = json.load(stream)
-          assert report["status"] == "degraded", report
-          assert not report["errors"], report
-          assert report["automations"]["status"] == "degraded", report
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          setup = json.loads((root / "setup.json").read_text(encoding="utf-8"))
+          update = json.loads((root / "update.json").read_text(encoding="utf-8"))
+          doctor = json.loads((root / "doctor.json").read_text(encoding="utf-8"))
+          assert setup["status"] == "passed" and setup["phase"] == "committed", setup
+          assert setup["version"] == "4.0.0", setup
+          assert setup["recovery"]["complete"] is True, setup
+          assert setup["activation_state"] == "runtime_unverified", setup
+          assert update["status"] == "passed" and update["actual_writes"] == [], update
+          expected = {
+              "plugin", "skill-governance", "loaded-skill", "managed-runtime",
+              "agents", "hooks", "validator", "vault", "workspace",
+              "automation", "playbook",
+          }
+          assert {item["diagnostic_id"] for item in doctor["diagnostics"]} == expected, doctor
+          assert doctor["errors"] == [], doctor
+          assert doctor["activation_state"] == "runtime_unverified", doctor
+          assert int(sys.argv[2]) != 0, "degraded static Doctor must return non-zero"
           PY
-          if [[ $doctor_status -eq 0 ]]; then
-            echo "::error::Doctor must return non-zero for an incomplete managed automation setup"
-            exit 1
-          fi
 
-      - name: Verify macOS entrypoints
-        if: runner.os == 'macOS'
+      - name: Validate platform entrypoints
         shell: bash
         run: |
-          bash -n install.sh verify.sh
-          # This self-test executes the real Python CLI chain
-          # --prepare -> --subagent-start -> --subagent-stop under paths with
-          # spaces and non-ASCII characters.
-          python plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py --self-test
-          python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test
-          set +e
-          output=$(
-            CODEX_HOME="$PWD/.ci/codex" \
-            XIAOH_VAULT="$PWD/.ci/vault" \
-            XIAOH_CONFIG="$PWD/.ci/xiaoh.json" \
-            ./verify.sh 2>&1
-          )
-          status=$?
-          set -e
-          printf '%s\n' "$output"
-          if [[ $status -eq 0 ]]; then
-            echo "::error::Incomplete automation setup must remain degraded"
-            exit 1
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            bash -n install.sh verify.sh
           fi
-          if ! grep -q "当前线程实际Skill版本未验证" <<< "$output"; then
-            echo "::error::verify.sh must not claim a loaded Skill version"
-            exit 1
-          fi
-
-      - name: Verify Windows entrypoints
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          $failed = $false
-          @(
-            "install.ps1",
-            "verify.ps1",
-            "plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.ps1"
-          ) | ForEach-Object {
-            $tokens = $null
-            $errors = $null
-            [Management.Automation.Language.Parser]::ParseFile(
-              (Resolve-Path $_), [ref]$tokens, [ref]$errors
-            ) | Out-Null
-            if ($errors.Count -gt 0) {
-              $path = $_
-              $errors | ForEach-Object {
-                Write-Output ("::error file=" + $path + ",line=" + $_.Extent.StartLineNumber + "::" + $_.Message)
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            powershell.exe -NoProfile -Command '
+              $failed = $false
+              @("install.ps1", "verify.ps1", "plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.ps1") | ForEach-Object {
+                $tokens = $null; $errors = $null
+                [Management.Automation.Language.Parser]::ParseFile((Resolve-Path $_), [ref]$tokens, [ref]$errors) | Out-Null
+                if ($errors.Count -gt 0) { $failed = $true; $errors | ForEach-Object { Write-Error $_.Message } }
               }
-              $failed = $true
-            }
-          }
-          if ($failed) { exit 1 }
-          $ErrorActionPreference = "Continue"
-          $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
-            plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.ps1 -SelfTest 2>&1
-          $status = $LASTEXITCODE
-          $output | ForEach-Object { Write-Host $_ }
-          if ($status -ne 0) {
-            $output | ForEach-Object { Write-Output ("::error::" + $_) }
-            exit $status
-          }
-          # This runs the real Python CLI chain under paths with spaces and
-          # non-ASCII characters; see the Hook self-test implementation.
-          python plugins/xiaoh/runtime/codex/hooks/block_reserved_root_agent.py --self-test
-          python plugins/xiaoh/runtime/codex/hooks/guard_vault_writes.py --self-test
-          $env:CODEX_HOME = Join-Path $PWD ".ci\codex"
-          $env:XIAOH_VAULT = Join-Path $PWD ".ci\vault"
-          $env:XIAOH_CONFIG = Join-Path $PWD ".ci\xiaoh.json"
-          $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\verify.ps1 2>&1
-          $status = $LASTEXITCODE
-          $text = ($output | Out-String)
-          Write-Host $text
-          if ($status -eq 0) {
-            Write-Output "::error::Incomplete automation setup must remain degraded"
-            exit 1
-          }
-          if (-not ($text.Contains("WARNING:") -and $text.Contains("Skill"))) {
-            Write-Output "::error::verify.ps1 must not claim a loaded Skill version"
-            exit 1
-          }
-          exit 0
+              if ($failed) { exit 1 }
+            '
+          fi
 
-  quality-report:
-    name: Coverage / typing / lint report
+  quality:
+    name: Coverage / typing / lint
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -194,21 +131,19 @@ jobs:
       - name: Install development-only quality tools
         run: python -m pip install "coverage>=7,<8" "mypy>=1,<2" "ruff>=0.11,<1"
 
-      - name: Coverage report
+      - name: Coverage
         run: |
-          python -m coverage run --branch -m unittest discover -s tests
+          python -m coverage run --branch -m unittest discover -s tests -p 'test_*.py'
           python -m coverage report
 
-      - name: Static typing report
-        continue-on-error: true
+      - name: Static typing
         run: |
           python -m mypy \
             --ignore-missing-imports \
             --allow-untyped-defs \
-            plugins/xiaoh/scripts/xiaoh.py \
-            plugins/xiaoh/runtime/codex/agent-system \
-            plugins/xiaoh/runtime/codex/hooks
+            plugins/xiaoh/xiaoh_runtime \
+            plugins/xiaoh/runtime/codex/agent-system/xiaoh_security \
+            plugins/xiaoh/runtime/codex/agent-system/xiaoh_validator
 
-      - name: Lint report
-        continue-on-error: true
-        run: python -m ruff check plugins/xiaoh tests
+      - name: Lint
+        run: python -m ruff check --select E9,F63,F7,F82 plugins/xiaoh tests

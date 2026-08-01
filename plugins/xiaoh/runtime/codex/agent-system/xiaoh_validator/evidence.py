@@ -1,11 +1,14 @@
 """XiaoH validator evidence boundary."""
 
-from xiaoh_validator.runtime import *
+import copy
+from datetime import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
 
-from xiaoh_validator.policy import *
-from xiaoh_validator.diagnostics import Report
-
-
+from xiaoh_validator.policy import HOME, ROOT_AGENT, SENSITIVE_KEYS
 def load_json(path, report):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -39,6 +42,28 @@ def file_sha256(path):
             digest.update(chunk)
     return digest.hexdigest()
 
+def path_sha256(path):
+    """Hash one file or a directory tree without following symlinks."""
+    path = Path(path).expanduser()
+    if path.is_symlink():
+        raise ValueError("evidence path must not be a symlink")
+    path = path.resolve(strict=False)
+    if path.is_file():
+        return file_sha256(path)
+    if not path.is_dir():
+        raise ValueError("evidence path does not exist")
+    digest = hashlib.sha256()
+    for child in sorted(path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()):
+        if child.is_symlink():
+            raise ValueError("evidence directory must not contain symlinks")
+        relative = child.relative_to(path).as_posix()
+        kind = "directory" if child.is_dir() else "file"
+        digest.update((kind + "\0" + relative + "\0").encode("utf-8"))
+        if child.is_file():
+            digest.update(file_sha256(child).encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
 def canonical_json_hash(value):
     encoded = json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -68,8 +93,57 @@ def migrate_task_context_15_to_16(source, source_path):
             "agent_type": agent,
             "action": actions[agent],
             "task_name_prefix": names[agent],
+            "allowed_paths": migrated.get("scope", {}).get("allowed_paths", []),
+            "read_only": agent not in {"java_implementer", "frontend_implementer"},
         }
         for agent in routing.get("delegated_agents", [])
+    }
+    delegated = routing.get("delegated_agents", [])
+    scope = migrated.setdefault("scope", {})
+    scope.setdefault("preexisting_changes", [])
+    for item in migrated.get("sources", []):
+        if isinstance(item, dict):
+            source_path = Path(str(item.get("path", ""))).expanduser()
+            item.setdefault("kind", "directory" if source_path.is_dir() else "file")
+            item.setdefault("sha256", path_sha256(source_path) if source_path.exists() else None)
+    verification_items = migrated.get("verification", [])
+    for index, item in enumerate(verification_items):
+        if isinstance(item, dict):
+            item.setdefault("id", "migrated-verification-{}".format(index + 1))
+            item.setdefault("category", "contract")
+            item.setdefault("required", True)
+    if migrated.get("task_type") == "implementation" and not any(
+        isinstance(item, dict) and item.get("category") == "scope"
+        for item in verification_items
+    ):
+        verification_items.append({
+            "id": "migrated-scope-proof",
+            "category": "scope",
+            "command": "attest root execution scope",
+            "expected": "passed scope proof",
+            "required": True,
+        })
+    risk = migrated.get("risk_level")
+    lane = "high_risk" if risk in {"high", "critical"} else ("fast" if risk == "low" and not delegated else "standard")
+    migrated["execution"] = {
+        "lane": lane,
+        "selection_reason": "Derived from the accepted schema 1.5 risk and delegation state.",
+        "verification_scope": "full" if lane == "high_risk" else "impact_driven",
+        "impact_surfaces": ["migrated accepted task scope"],
+        "verification_profile": {
+            "required_categories": sorted({
+                item.get("category") for item in verification_items
+                if isinstance(item, dict) and item.get("required") is True
+            }),
+            "not_applicable": [],
+        },
+        "effects": {"level": "none", "authorized": False, "evidence": None},
+        "delegation": {
+            "decision": "delegate" if delegated else "direct",
+            "authorized": bool(delegated),
+            "benefits": ["preserve accepted delegated specialist scope"] if delegated else [],
+            "reason": "Preserve the accepted schema 1.5 delegation decision." if delegated else "No accepted delegated scope exists.",
+        },
     }
     playbook = migrated["playbook"]
     for key in (

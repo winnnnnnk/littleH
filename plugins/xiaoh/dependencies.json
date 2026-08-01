@@ -1,7 +1,8 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "xiaoh-dependencies/v2",
   "bundled_skills": [
     "codebase-design",
+    "code-review",
     "diagnosing-bugs",
     "domain-modeling",
     "fit-for-purpose-engineering",
@@ -45,7 +46,7 @@
     {
       "id": "ponytail@ponytail",
       "level": "recommended",
-      "auto_install": true,
+      "auto_install": false,
       "marketplace_source": "DietrichGebert/ponytail",
       "marketplace_ref": "main",
       "purpose": "在已确认方案的编码阶段收敛实现复杂度"
@@ -53,55 +54,55 @@
     {
       "id": "browser@openai-bundled",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "真实浏览器验证"
     },
     {
       "id": "chrome@openai-bundled",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "复用用户现有Chrome会话"
     },
     {
       "id": "documents@openai-primary-runtime",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "Word文档处理"
     },
     {
       "id": "pdf@openai-primary-runtime",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "PDF处理"
     },
     {
       "id": "spreadsheets@openai-primary-runtime",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "电子表格处理"
     },
     {
       "id": "presentations@openai-primary-runtime",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "演示文稿处理"
     },
     {
       "id": "template-creator@openai-primary-runtime",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "可复用文档模板生成"
     },
     {
       "id": "sites@openai-bundled",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "站点构建与托管"
     },
     {
       "id": "visualize@openai-bundled",
       "level": "optional",
-      "auto_install": true,
+      "auto_install": false,
       "purpose": "交互式可视化"
     }
   ],

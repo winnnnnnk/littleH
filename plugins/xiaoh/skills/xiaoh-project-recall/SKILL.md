@@ -28,6 +28,8 @@ Read in this order:
 4. Linked project knowledge, domain knowledge, and reusable methods when their applicability matches.
 5. Daily digests only as navigation to underlying closeouts or baselines. Never use a digest summary as the sole authority for a business rule.
 
+For a continuation, follow handoff links to their underlying task context, evidence, and closeout. Treat unresolved ownership and suggested Skills as navigation facts only. Revalidate the linked evidence and never promote a handoff summary into a second authoritative history.
+
 Prefer exact links and stable IDs. If no relevant history exists, record the indexes and query that were checked plus a concrete `no_relevant_history_reason`; never invent a source.
 
 ## Reconcile current facts

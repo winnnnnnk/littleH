@@ -1,6 +1,6 @@
 ---
 name: xiaoh-playbook-adapter
-description: Bind XiaoH business-project execution to current AI Dev Playbook worker and task-status facts without modifying Playbook.
+description: Bind XiaoH business-project execution to current AI Dev Playbook worker and task-status facts without modifying Playbook. Use only when the task context explicitly sets playbook.managed=true.
 ---
 
 # XiaoH Playbook Adapter

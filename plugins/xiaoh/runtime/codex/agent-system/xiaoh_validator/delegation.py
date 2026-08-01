@@ -1,9 +1,23 @@
 """Delegation integrity checks without a review lifecycle."""
 
-from xiaoh_validator.runtime import *
-from xiaoh_validator.policy import *
-from xiaoh_validator.diagnostics import Report
-from xiaoh_validator.evidence import *
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
+
+from xiaoh_validator.policy import (
+    ALLOWED_EVIDENCE_STATUSES,
+    ALLOWED_USER_ACTS,
+    DELEGATION_BINDING_MAX_AGE_SECONDS,
+)
+from xiaoh_validator.schemas import DELEGATION_BINDING_SCHEMA, DELEGATION_PROOF_SCHEMA
+from xiaoh_validator.evidence import (
+    canonical_json_hash,
+    file_sha256,
+    parse_timestamp,
+    require_keys,
+    task_authority_hash,
+)
 
 
 def closure_rejection_reasons(record, reviewer_agents=None):
@@ -25,12 +39,15 @@ def closure_rejection_reasons(record, reviewer_agents=None):
 
 
 def expected_effective_brief(context, agent, action, task_name, binding_hash=None, **extra):
+    policy = context.get("routing", {}).get("delegation_policies", {}).get(agent, {})
     brief = {
         "task_id": context.get("task_id"),
         "authority_hash": task_authority_hash(context),
         "delegated_agent": agent,
         "action": action,
         "task_name": task_name,
+        "allowed_paths": policy.get("allowed_paths", []),
+        "read_only": policy.get("read_only", True),
         "purpose": "execution",
     }
     if binding_hash:
@@ -79,6 +96,30 @@ def validate_delegation_proof(runtime_evidence, data, context, context_path, rep
         report.error("delegation proof identity does not match run record")
     if proof.get("authority_hash") != task_authority_hash(context):
         report.error("delegation proof authority hash does not match task context")
+    if proof.get("state") != "attested" or proof.get("attested") is not True:
+        report.error("delegation proof is not attested")
+    if proof.get("task_name") != runtime_evidence.get("task_name"):
+        report.error("delegation proof task_name does not match runtime evidence")
+    if proof.get("agent_id") != runtime_evidence.get("agent_id"):
+        report.error("delegation proof agent_id does not match runtime evidence")
+    if proof.get("transcript_path") != runtime_evidence.get("transcript_path"):
+        report.error("delegation proof transcript_path does not match runtime evidence")
+    if proof.get("transcript_hash") != runtime_evidence.get("transcript_hash"):
+        report.error("delegation proof transcript_hash does not match runtime evidence")
+    expected = expected_effective_brief(
+        context,
+        data.get("agent"),
+        context.get("routing", {}).get("delegation_policies", {}).get(
+            data.get("agent"), {}
+        ).get("action"),
+        runtime_evidence.get("task_name"),
+    )
+    validate_attested_binding(
+        proof,
+        expected,
+        runtime_evidence.get("transcript_path"),
+        report,
+    )
 
 
 def validate_interaction_gate(context, action, report):
@@ -104,13 +145,18 @@ def validate_execution_binding(binding, context, context_path, agent, action, re
     if not isinstance(binding, dict):
         report.error("execution binding must be an object")
         return
-    required = ["schema_version", "task_id", "authority_hash", "delegated_agent", "action", "task_name", "created_at", "nonce"]
+    required = [
+        "schema_version", "task_id", "task_context", "authority_hash",
+        "delegated_agent", "action", "task_name", "created_at", "expires_at",
+        "nonce", "parent_session_id", "allowed_paths", "read_only", "binding_hash",
+    ]
     if not require_keys(binding, required, "execution binding", report):
         return
     if binding["schema_version"] != DELEGATION_BINDING_SCHEMA:
         report.error("execution binding schema is not supported")
     expected = {
         "task_id": context.get("task_id"),
+        "task_context": str(Path(context_path).expanduser().resolve(strict=False)),
         "authority_hash": task_authority_hash(context),
         "delegated_agent": agent,
         "action": action,
@@ -123,9 +169,23 @@ def validate_execution_binding(binding, context, context_path, agent, action, re
     policy = context.get("routing", {}).get("delegation_policies", {}).get(agent, {})
     if policy.get("agent_type") != agent or policy.get("action") != action:
         report.error("execution binding violates delegation policy")
+    if binding.get("allowed_paths") != policy.get("allowed_paths") or binding.get("read_only") != policy.get("read_only"):
+        report.error("execution binding scope violates delegation policy")
     prefix = policy.get("task_name_prefix")
     if not isinstance(prefix, str) or not re.fullmatch(re.escape(prefix) + r"__r[1-9][0-9]*__[0-9a-f]{8,64}", str(binding.get("task_name"))):
         report.error("execution binding task_name is outside its authorized namespace")
     created = parse_timestamp(binding.get("created_at"), "execution binding created_at", report)
-    if created and abs((datetime.now(timezone.utc) - created).total_seconds()) > DELEGATION_BINDING_MAX_AGE_SECONDS:
+    expires = parse_timestamp(binding.get("expires_at"), "execution binding expires_at", report)
+    now = datetime.now(timezone.utc)
+    if created and abs((now - created).total_seconds()) > DELEGATION_BINDING_MAX_AGE_SECONDS:
         report.error("execution binding is stale")
+    if created and expires:
+        lifetime = (expires - created).total_seconds()
+        if lifetime <= 0 or lifetime > DELEGATION_BINDING_MAX_AGE_SECONDS:
+            report.error("execution binding expiry window is invalid")
+        if now >= expires:
+            report.error("execution binding is expired")
+    unhashed = dict(binding)
+    stored_hash = unhashed.pop("binding_hash", None)
+    if stored_hash != canonical_json_hash(unhashed):
+        report.error("execution binding hash does not match its content")

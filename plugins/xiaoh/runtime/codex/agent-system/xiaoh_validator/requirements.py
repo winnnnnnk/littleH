@@ -1,10 +1,39 @@
 """XiaoH validator requirements boundary."""
 
-from xiaoh_validator.runtime import *
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import re
+import tempfile
 
-from xiaoh_validator.policy import *
-from xiaoh_validator.diagnostics import Report
-from xiaoh_validator.evidence import *
+from xiaoh_validator.policy import (
+    ALLOWED_ARTIFACT_ROUTES,
+    ALLOWED_CURRENT_FACT_KINDS,
+    ALLOWED_MEMORY_SOURCE_KINDS,
+    ALLOWED_MEMORY_SOURCE_ROLES,
+    ALLOWED_RECALL_STATUS,
+    ALLOWED_REQUIREMENT_CHECK_STATUS,
+    ALLOWED_RETROACTIVE_STATUS,
+    ALLOWED_SKILL_CONFIRMATION_STATUS,
+    ALLOWED_SKILL_STATUS,
+    ALLOWED_SPEC_RFC_STATUS,
+    ALLOWED_TASK_RELATIONS,
+    MAX_RECALL_AGE_HOURS,
+)
+from xiaoh_validator.schemas import RECALL_MANIFEST_SCHEMA
+from xiaoh_validator.evidence import (
+    configured_vault_path,
+    configured_xiaoh_path,
+    file_identity,
+    file_sha256,
+    non_empty_or_none,
+    parse_timestamp,
+    path_is_covered,
+    require_keys,
+    resolve_configured_workspace,
+    validate_string_list,
+)
 
 
 def _valid_enum(value, allowed):
@@ -399,10 +428,11 @@ def validate_requirements(requirements, report):
     if require_keys(bypass, ["reason"], "requirements.bypass", report):
         if not non_empty_or_none(bypass["reason"]):
             report.error("requirements.bypass.reason must be null or a non-empty string")
-        if route == "openspec_only" and (not isinstance(bypass["reason"], str) or not bypass["reason"].strip()):
-            report.error("openspec_only requires a non-empty requirements.bypass.reason")
-        if route != "openspec_only" and bypass["reason"] is not None:
-            report.error("requirements.bypass.reason is only allowed for openspec_only")
+        bypass_routes = {"direct_change", "openspec_only"}
+        if route in bypass_routes and (not isinstance(bypass["reason"], str) or not bypass["reason"].strip()):
+            report.error("{} requires a non-empty requirements.bypass.reason".format(route))
+        if route not in bypass_routes and bypass["reason"] is not None:
+            report.error("requirements.bypass.reason is only allowed for direct_change or openspec_only")
 
     retro = requirements["retroactive_normalization"]
     if require_keys(retro, ["required", "status"], "requirements.retroactive_normalization", report):
@@ -436,7 +466,7 @@ def validate_requirements(requirements, report):
             if not isinstance(record["name"], str) or not record["name"].strip():
                 report.error("{}.name must be a non-empty string".format(label))
             else:
-                names.append(record["name"].removeprefix("$"))
+                names.append(record["name"].lstrip("$"))
             if not _valid_enum(record["status"], ALLOWED_SKILL_STATUS):
                 report.error("{}.status must be one of {}".format(label, sorted(ALLOWED_SKILL_STATUS)))
             if not _valid_enum(
@@ -449,7 +479,7 @@ def validate_requirements(requirements, report):
                 report.error("{}.confirmation_status must be one of {}".format(label, sorted(ALLOWED_SKILL_CONFIRMATION_STATUS)))
             if not non_empty_or_none(record["evidence"]):
                 report.error("{}.evidence must be null or a non-empty string".format(label))
-        normalized_requested = [name.removeprefix("$") for name in requested]
+        normalized_requested = [name.lstrip("$") for name in requested]
         if len(names) != len(set(names)):
             report.error("requirements.skill_execution.records contains duplicate skill names")
         if set(names) != set(normalized_requested):
@@ -457,10 +487,18 @@ def validate_requirements(requirements, report):
         if "spec-rfc" in normalized_requested and route != "spec_rfc_then_openspec":
             report.error("explicit spec-rfc request requires artifact_route=spec_rfc_then_openspec")
 
-    if route == "openspec_only" and isinstance(spec, dict) and spec.get("status") != "not_required":
-        report.error("openspec_only requires requirements.spec_rfc.status=not_required")
+    if route in {"direct_change", "openspec_only"} and isinstance(spec, dict) and spec.get("status") != "not_required":
+        report.error("{} requires requirements.spec_rfc.status=not_required".format(route))
     if route == "spec_rfc_then_openspec" and isinstance(spec, dict) and spec.get("status") == "not_required":
         report.error("spec_rfc_then_openspec cannot use requirements.spec_rfc.status=not_required")
+    if route == "direct_change":
+        if requirements.get("risk_signals"):
+            report.error("direct_change requires empty requirements.risk_signals")
+        if isinstance(openspec, dict) and (
+            openspec.get("status") != "not_required"
+            or openspec.get("traceability_status") != "not_required"
+        ):
+            report.error("direct_change requires OpenSpec to be not_required")
 
 def example_memory_recall():
     return {

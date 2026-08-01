@@ -4,8 +4,6 @@ import os
 import re
 from pathlib import Path
 
-from xiaoh_validator.schemas import *
-
 HOME = Path.home()
 CODEX = Path(os.environ.get("CODEX_HOME", str(HOME / ".codex"))).expanduser()
 OBSIDIAN_VAULT = Path(os.environ.get("XIAOH_VAULT", str(HOME / "obsidian/development-vault"))).expanduser()
@@ -14,6 +12,7 @@ ROOT_AGENT = "xiaoh"
 ROOT_AGENT_EXECUTION_MODES = {"main_agent_direct", "main_agent_sequential"}
 ROOT_AGENT_HOOK = CODEX / "hooks/block_reserved_root_agent.py"
 VAULT_WRITE_HOOK = CODEX / "hooks/guard_vault_writes.py"
+ROOT_WRITE_HOOK = CODEX / "hooks/guard_task_writes.py"
 HOOK_RUNTIME_VERIFIER = CODEX / "hooks/verify_agent_hook_runtime.py"
 ROLE_CATALOG = OBSIDIAN_VAULT / "90-个人系统/Agent协作角色.md"
 EVOLUTION_LEDGER = OBSIDIAN_VAULT / "90-个人系统/Agent进化台账.md"
@@ -30,7 +29,20 @@ ALLOWED_USER_ACTS = {"question", "hypothesis", "fact_correction", "business_deci
 ALLOWED_BASELINE_CHANGES = {"none", "proposed", "confirmed"}
 ALLOWED_EVIDENCE_STATUSES = {"not_checked", "supported", "conflicted", "insufficient"}
 ALLOWED_SCOPE_REDUCTION_BASES = {"not_applicable", "evidence_supported", "explicit_business_decision"}
-ALLOWED_ARTIFACT_ROUTES = {"openspec_only", "spec_rfc_then_openspec", "class_skill"}
+ALLOWED_ARTIFACT_ROUTES = {
+    "direct_change",
+    "openspec_only",
+    "spec_rfc_then_openspec",
+    "class_skill",
+}
+ALLOWED_EXECUTION_LANES = {"fast", "standard", "high_risk"}
+ALLOWED_VERIFICATION_SCOPES = {"impact_driven", "full"}
+ALLOWED_VERIFICATION_CATEGORIES = {
+    "scope", "syntax", "unit", "integration", "contract", "build",
+    "security", "migration_recovery", "cross_platform",
+}
+ALLOWED_DELEGATION_DECISIONS = {"direct", "delegate"}
+ALLOWED_EFFECT_LEVELS = {"none", "reversible", "destructive", "production"}
 ALLOWED_SPEC_RFC_STATUS = {"not_required", "pending", "drafting", "validating", "confirmation_pending", "confirmed"}
 ALLOWED_REQUIREMENT_CHECK_STATUS = {"not_required", "pending", "passed", "failed"}
 ALLOWED_RETROACTIVE_STATUS = {"not_required", "pending", "in_progress", "completed"}
